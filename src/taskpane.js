@@ -438,6 +438,7 @@ async function handleSendMessage() {
     // Add user message to chat
     addMessageToChat('user', message);
 
+    
     // Show typing indicator
     showTypingIndicator();
 
