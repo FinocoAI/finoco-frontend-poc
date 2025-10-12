@@ -57,11 +57,28 @@ Office.onReady((info) => {
 async function initializeApp() {
     // Set up event listeners
     document.getElementById('sendButton').addEventListener('click', handleSendMessage);
-    document.getElementById('refreshButton').addEventListener('click', handleRefreshContext);
+    document.getElementById('refreshButton')?.addEventListener('click', handleRefreshContext);
     document.getElementById('userInput').addEventListener('keydown', (e) => 
         handleInputKeydown(e, handleSendMessage)
     );
     document.getElementById('userInput').addEventListener('input', handleInputResize);
+
+    // Set up new UI button listeners
+    document.getElementById('historyButton')?.addEventListener('click', handleHistoryClick);
+    document.getElementById('menuButton')?.addEventListener('click', handleMenuClick);
+    document.getElementById('uploadButton')?.addEventListener('click', handleUploadClick);
+
+    // Set up suggestion click listeners
+    const suggestionItems = document.querySelectorAll('.suggestion-item');
+    suggestionItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const query = item.getAttribute('data-query');
+            if (query) {
+                document.getElementById('userInput').value = query;
+                handleSendMessage();
+            }
+        });
+    });
 
     // Load initial context (lightweight UI context only)
     await updateExcelContext();
@@ -100,6 +117,30 @@ async function checkAPIConnection() {
 }
 
 /**
+ * Handle history button click
+ */
+function handleHistoryClick() {
+    console.log('History button clicked - feature to be implemented');
+    // TODO: Implement history feature
+}
+
+/**
+ * Handle menu button click
+ */
+function handleMenuClick() {
+    console.log('Menu button clicked - feature to be implemented');
+    // TODO: Implement menu feature
+}
+
+/**
+ * Handle upload button click
+ */
+function handleUploadClick() {
+    console.log('Upload button clicked - feature to be implemented');
+    // TODO: Implement file upload feature
+}
+
+/**
  * Handle send message
  */
 async function handleSendMessage() {
@@ -115,6 +156,12 @@ async function handleSendMessage() {
     // Disable send button
     const sendButton = document.getElementById('sendButton');
     sendButton.disabled = true;
+
+    // Hide welcome screen on first message
+    const welcomeScreen = document.getElementById('welcomeScreen');
+    if (welcomeScreen && !welcomeScreen.classList.contains('hidden')) {
+        welcomeScreen.classList.add('hidden');
+    }
 
     // Add user message to chat
     addMessageToChat('user', message);

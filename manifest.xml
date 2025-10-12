@@ -7,10 +7,10 @@
 
   <Id>12345678-1234-1234-1234-123456789012</Id>
   <Version>1.0.0.0</Version>
-  <ProviderName>Your Company</ProviderName>
+  <ProviderName>Finoco.ai</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
-  <DisplayName DefaultValue="Excel AI Agent"/>
-  <Description DefaultValue="AI-powered Excel assistant with LLM integration"/>
+  <DisplayName DefaultValue="Warren by Finoco.ai"/>
+  <Description DefaultValue="AI that understands your spreadsheets"/>
   <IconUrl DefaultValue="https://cecb4c51c2f7.ngrok-free.app/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://cecb4c51c2f7.ngrok-free.app/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://www.contoso.com/help"/>
@@ -87,13 +87,13 @@
         <bt:Url id="Taskpane.Url" DefaultValue="https://cecb4c51c2f7.ngrok-free.app/taskpane.html"/>
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="GetStarted.Title" DefaultValue="Get started with Excel AI Agent!"/>
-        <bt:String id="CommandsGroup.Label" DefaultValue="AI Agent"/>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Open AI Assistant"/>
+        <bt:String id="GetStarted.Title" DefaultValue="Get started with Warren!"/>
+        <bt:String id="CommandsGroup.Label" DefaultValue="Warren"/>
+        <bt:String id="TaskpaneButton.Label" DefaultValue="Open Warren"/>
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="GetStarted.Description" DefaultValue="Your AI assistant is loaded. Click 'Open AI Assistant' to get started."/>
-        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open the AI assistant panel to interact with your Excel data."/>
+        <bt:String id="GetStarted.Description" DefaultValue="Warren by Finoco.ai is ready. Click 'Open Warren' to get started."/>
+        <bt:String id="TaskpaneButton.Tooltip" DefaultValue="Open Warren - AI that understands your spreadsheets."/>
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

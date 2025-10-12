@@ -1,6 +1,6 @@
-# Excel Agent Frontend
+# Warren by Finoco.ai - Frontend
 
-Frontend and tools to be executed in frontend.
+AI that understands your spreadsheets. Frontend application and tools to be executed in frontend.
 
 ## Architecture
 
