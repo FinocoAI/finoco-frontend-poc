@@ -612,6 +612,119 @@ async function handleSendMessage() {
     }
 }
 
+// Handle clarification request from agent
+async function handleClarificationRequest(taskId, status) {
+    console.log('🔔 Agent needs clarification');
+
+    const question = status.result?.clarification_question || "I need more information to proceed.";
+
+    // Remove typing indicator while waiting for user input
+    removeTypingIndicator();
+
+    // Show clarification in chat
+    addMessageToChat('ai', question);
+
+    // Show clarification modal and wait for user response
+    const userAnswer = await showClarificationModal(question);
+
+    if (!userAnswer) {
+        // User cancelled - throw error to stop processing
+        throw new Error('Task cancelled by user');
+    }
+
+    // Show user's answer in chat
+    addMessageToChat('user', userAnswer);
+
+    // Show typing indicator for resuming
+    showTypingIndicator('Resuming with your answer...');
+
+    // Submit answer to backend
+    try {
+        const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/respond`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'ngrok-skip-browser-warning': 'true'
+            },
+            body: JSON.stringify({ answer: userAnswer })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to submit clarification: HTTP ${response.status}`);
+        }
+
+        console.log('✓ Clarification submitted, resuming task...');
+
+        // Continue polling for result
+        return await pollTaskStatus(taskId);
+
+    } catch (error) {
+        console.error('Failed to submit clarification:', error);
+        throw new Error(`Failed to submit your answer: ${error.message}`);
+    }
+}
+
+// Show clarification modal and return promise that resolves with user's answer
+function showClarificationModal(question) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('clarificationModal');
+        const questionElement = document.getElementById('clarificationQuestion');
+        const inputElement = document.getElementById('clarificationInput');
+        const submitButton = document.getElementById('clarificationSubmit');
+        const cancelButton = document.getElementById('clarificationCancel');
+
+        // Set question text
+        questionElement.textContent = question;
+        inputElement.value = '';
+
+        // Show modal
+        modal.classList.remove('hidden');
+        inputElement.focus();
+
+        // Submit handler
+        const handleSubmit = () => {
+            const answer = inputElement.value.trim();
+            if (answer) {
+                modal.classList.add('hidden');
+                cleanup();
+                resolve(answer);
+            } else {
+                inputElement.focus();
+            }
+        };
+
+        // Cancel handler
+        const handleCancel = () => {
+            modal.classList.add('hidden');
+            cleanup();
+            resolve(null);
+        };
+
+        // Enter key handler
+        const handleKeyDown = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSubmit();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                handleCancel();
+            }
+        };
+
+        // Cleanup function
+        const cleanup = () => {
+            submitButton.removeEventListener('click', handleSubmit);
+            cancelButton.removeEventListener('click', handleCancel);
+            inputElement.removeEventListener('keydown', handleKeyDown);
+        };
+
+        // Attach event listeners
+        submitButton.addEventListener('click', handleSubmit);
+        cancelButton.addEventListener('click', handleCancel);
+        inputElement.addEventListener('keydown', handleKeyDown);
+    });
+}
+
 // Poll task status until complete or failed
 async function pollTaskStatus(taskId) {
     const pollInterval = 2000; // 2 seconds
@@ -647,6 +760,12 @@ async function pollTaskStatus(taskId) {
             if (status.status === 'complete') {
                 console.log(`✓ Task completed after ${elapsed}s`);
                 return status.result;
+            }
+
+            // Check if task needs clarification
+            if (status.status === 'needs_clarification') {
+                console.log(`⏸️ Task paused for clarification`);
+                return await handleClarificationRequest(taskId, status);
             }
 
             // Check if task failed

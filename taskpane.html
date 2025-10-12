@@ -80,6 +80,30 @@
                 </button>
             </div>
         </div>
+
+        <!-- Clarification Modal -->
+        <div id="clarificationModal" class="clarification-modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-icon">❓</div>
+                    <h3>I need clarification</h3>
+                </div>
+                <div class="modal-body">
+                    <p id="clarificationQuestion" class="clarification-question"></p>
+                    <textarea
+                        id="clarificationInput"
+                        class="clarification-input"
+                        placeholder="Type your answer here..."
+                        rows="3"
+                    ></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button id="clarificationSubmit" class="btn-primary">Submit</button>
+                    <button id="clarificationCancel" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Main script with ES6 module support -->
