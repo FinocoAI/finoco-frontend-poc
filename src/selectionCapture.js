@@ -6,11 +6,13 @@
  *
  * Key Features:
  * - Captures selections from the active sheet
- * - Captures only PREVIEW data (first 5 rows)
+ * - Smart data capture strategy:
+ *   • Small selections (≤100 rows): Sends FULL data immediately (no tool call needed)
+ *   • Large selections (>100 rows): Sends PREVIEW only (agent calls getFullRangeData if needed)
  * - Supports multiple non-contiguous selections (Ctrl+Click)
- * - Keeps token usage low
+ * - Balances immediate context vs. token usage
  * - Returns null if nothing is selected
- * - Gives agent enough context to decide if it needs full data
+ * - Uses 'isComplete' flag to indicate if agent has all data
  *
  * Note on Cross-Sheet Selections:
  * Excel clears selections when you switch sheets. Therefore, we can only capture
@@ -19,10 +21,10 @@
  */
 
 /**
- * Maximum number of preview rows to capture
- * This keeps token usage low while providing enough context
+ * Configuration for data capture strategy
  */
-const PREVIEW_ROW_LIMIT = 5;
+const PREVIEW_ROW_LIMIT = 5;           // Preview rows for large selections
+const FULL_DATA_THRESHOLD = 100;       // Send full data if <= this many rows
 
 /**
  * Main function to capture user selection context
@@ -101,7 +103,10 @@ export async function captureUserSelection() {
 }
 
 /**
- * Captures preview data for a single selected region
+ * Captures data for a single selected region
+ * Strategy:
+ * - Small selections (≤ FULL_DATA_THRESHOLD rows): Send all data immediately
+ * - Large selections (> FULL_DATA_THRESHOLD rows): Send preview only (agent calls getFullRangeData if needed)
  *
  * @param {Excel.RequestContext} context - Excel request context
  * @param {Excel.Range} range - Range to capture
@@ -123,28 +128,45 @@ async function captureRegionPreview(context, range) {
       rowCount: range.rowCount,
       columnCount: range.columnCount,
       headers: [],
-      preview: [],
     };
 
-    // Get first row as headers
-    if (range.rowCount > 0) {
-      const headerRow = range.getRow(0);
-      headerRow.load("values");
+    // Decide strategy: full data vs preview
+    const sendFullData = range.rowCount <= FULL_DATA_THRESHOLD;
+
+    if (sendFullData) {
+      // Small selection: send ALL data
+      range.load("values");
       await context.sync();
-      regionData.headers = headerRow.values[0].map(val => String(val));
+      
+      regionData.data = range.values;  // Full data
+      regionData.isComplete = true;    // Flag: agent has all data
+      
+      // Extract headers from first row
+      if (range.rowCount > 0) {
+        regionData.headers = range.values[0].map(val => String(val));
+      }
+      
+      console.log(`    ✓ Region captured: FULL data (${range.rowCount} rows)`);
+      
+    } else {
+      // Large selection: send preview only
+      const previewRowCount = Math.min(PREVIEW_ROW_LIMIT, range.rowCount);
+      
+      if (previewRowCount > 0) {
+        const previewRange = range.getAbsoluteResizedRange(previewRowCount, range.columnCount);
+        previewRange.load("values");
+        await context.sync();
+        
+        regionData.preview = previewRange.values;  // Preview only
+        regionData.isComplete = false;             // Flag: agent needs to call getFullRangeData
+        
+        // Extract headers from preview
+        regionData.headers = previewRange.values[0].map(val => String(val));
+      }
+      
+      console.log(`    ✓ Region captured: PREVIEW only (${previewRowCount}/${range.rowCount} rows)`);
     }
 
-    // Get preview data (first N rows)
-    const previewRowCount = Math.min(PREVIEW_ROW_LIMIT, range.rowCount);
-
-    if (previewRowCount > 0) {
-      const previewRange = range.getAbsoluteResizedRange(previewRowCount, range.columnCount);
-      previewRange.load("values");
-      await context.sync();
-      regionData.preview = previewRange.values;
-    }
-
-    console.log(`    ✓ Region captured: ${previewRowCount} preview rows`);
     return regionData;
 
   } catch (error) {

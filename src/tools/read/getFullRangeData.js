@@ -17,6 +17,7 @@ export const toolDefinition = {
   name: "getFullRangeData",
   description: "Fetch complete data from a specific range address. Returns all cell values, formulas, and metadata.",
   executor: "frontend",
+  requiresContinuation: true,  // READ tool - results must be sent back to agent
   parameters: {
     sheetName: {
       type: "string",

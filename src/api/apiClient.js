@@ -3,7 +3,7 @@
  * Handles all backend communication including task submission and polling
  */
 
-const API_BASE_URL = 'https://41a36d0f8a03.ngrok-free.app';
+export const API_BASE_URL = 'https://41a36d0f8a03.ngrok-free.app';
 
 /**
  * Generate unique request ID for deduplication

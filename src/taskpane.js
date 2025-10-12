@@ -25,6 +25,7 @@ import { showClarificationModal } from './ui/clarificationModal.js';
 
 // Import API client
 import { 
+    API_BASE_URL,
     checkAPIHealth, 
     submitTask, 
     recoverTask, 
@@ -220,7 +221,7 @@ async function handleSendMessage() {
         addMessageToChat('ai', displayMessage);
 
         // Execute frontend tool calls if present
-        await executeFrontendTools(result.toolCalls);
+        await executeFrontendTools(result.toolCalls, taskId);
 
     } catch (error) {
         console.error('Error processing message:', error);
@@ -235,42 +236,180 @@ async function handleSendMessage() {
 /**
  * Execute frontend tool calls returned by backend
  */
-async function executeFrontendTools(toolCalls) {
+async function executeFrontendTools(toolCalls, taskId) {
     if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) {
         return;
     }
 
     console.log(`🔧 Executing ${toolCalls.length} frontend tool(s)`);
 
+    // List of READ tools that require continuation
+    const READ_TOOLS = ['getFullRangeData', 'getColumnData', 'getTableData', 'getFormulasInRange', 
+                        'getCellPrecedents', 'getCellDependents', 'getRelatedData', 'getChartSourceData',
+                        'searchValues', 'getNamedRangeData'];
+    
+    const toolResults = [];
+    let hasReadTools = false;
+
     for (const toolCall of toolCalls) {
         try {
             const toolResult = await executeTool(toolCall.tool, toolCall.params);
 
             if (toolResult.success) {
-                // Show success message based on tool type
-                if (toolCall.tool === 'writeDataToRange') {
-                    addMessageToChat('ai', `✓ Data written to ${toolResult.result.rangeAddress}`, true);
-                } else if (toolCall.tool === 'createChart') {
-                    addMessageToChat('ai', `✓ Chart "${toolResult.result.title}" created`, true);
-                } else if (toolCall.tool === 'createTable') {
-                    addMessageToChat('ai', `✓ Table "${toolResult.result.tableName}" created`, true);
-                } else if (toolCall.tool === 'applyFormula') {
-                    addMessageToChat('ai', `✓ Formula applied to ${toolResult.result.rangeAddress}`, true);
-                } else if (toolCall.tool === 'formatRange') {
-                    addMessageToChat('ai', `✓ Formatting applied to ${toolResult.result.rangeAddress}`, true);
-                } else if (toolCall.tool === 'createNewSheet') {
-                    addMessageToChat('ai', `✓ Sheet "${toolResult.result.sheetName}" created`, true);
-                } else if (toolCall.tool === 'insertRows' || toolCall.tool === 'deleteRows') {
-                    addMessageToChat('ai', `✓ Rows modified successfully`, true);
-                } else {
+                // Check if this is a READ tool
+                const isReadTool = READ_TOOLS.includes(toolCall.tool);
+                
+                if (isReadTool) {
+                    hasReadTools = true;
+                    // Store result to send back to backend
+                    toolResults.push({
+                        tool: toolCall.tool,
+                        params: toolCall.params,
+                        result: toolResult.result,
+                        success: true
+                    });
                     addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
+                } else {
+                    // WRITE tool - show appropriate success message
+                    if (toolCall.tool === 'writeDataToRange') {
+                        addMessageToChat('ai', `✓ Data written to ${toolResult.result.rangeAddress}`, true);
+                    } else if (toolCall.tool === 'createChart') {
+                        addMessageToChat('ai', `✓ Chart "${toolResult.result.title}" created`, true);
+                    } else if (toolCall.tool === 'createTable') {
+                        addMessageToChat('ai', `✓ Table "${toolResult.result.tableName}" created`, true);
+                    } else if (toolCall.tool === 'applyFormula') {
+                        addMessageToChat('ai', `✓ Formula applied to ${toolResult.result.rangeAddress}`, true);
+                    } else if (toolCall.tool === 'formatRange') {
+                        addMessageToChat('ai', `✓ Formatting applied to ${toolResult.result.rangeAddress}`, true);
+                    } else if (toolCall.tool === 'createNewSheet') {
+                        addMessageToChat('ai', `✓ Sheet "${toolResult.result.sheetName}" created`, true);
+                    } else if (toolCall.tool === 'insertRows' || toolCall.tool === 'deleteRows') {
+                        addMessageToChat('ai', `✓ Rows modified successfully`, true);
+                    } else {
+                        addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
+                    }
                 }
             } else {
                 addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${toolResult.error}`, true);
+                if (READ_TOOLS.includes(toolCall.tool)) {
+                    toolResults.push({
+                        tool: toolCall.tool,
+                        params: toolCall.params,
+                        result: null,
+                        success: false,
+                        error: toolResult.error
+                    });
+                }
             }
         } catch (error) {
             console.error(`Tool execution error:`, error);
             addMessageToChat('ai', `⚠️ Failed to execute ${toolCall.tool}`, true);
+            if (READ_TOOLS.includes(toolCall.tool)) {
+                toolResults.push({
+                    tool: toolCall.tool,
+                    params: toolCall.params,
+                    result: null,
+                    success: false,
+                    error: error.message
+                });
+            }
         }
+    }
+
+    // If there were READ tools, send results back to backend for continued processing
+    if (hasReadTools && toolResults.length > 0) {
+        console.log(`📤 Sending READ tool results back to backend for continuation...`);
+        showTypingIndicator('Analyzing data...');
+        
+        try {
+            await continueTaskWithResults(taskId, toolResults);
+        } catch (error) {
+            console.error('Failed to continue task with results:', error);
+            removeTypingIndicator();
+            addMessageToChat('ai', `⚠️ Failed to continue analysis: ${error.message}`, true);
+        }
+    }
+}
+
+/**
+ * Continue task with tool results (for READ tools)
+ */
+async function continueTaskWithResults(taskId, toolResults) {
+    try {
+        // Send tool results to backend
+        const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/continue`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'ngrok-skip-browser-warning': 'true'
+            },
+            body: JSON.stringify({
+                toolResults: toolResults
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        console.log(`✓ Tool results sent, polling for continued processing...`);
+        
+        // Poll for task completion
+        const pollResult = await pollTaskStatus(
+            taskId,
+            // Progress callback
+            (progress, elapsed) => {
+                updateTypingIndicator(`${progress} (${elapsed}s)`);
+            },
+            // Clarification callback - handle if agent needs clarification after reading data
+            async (status) => {
+                const question = status.result?.clarification_question || "I need more information to proceed.";
+                
+                // Remove typing indicator while waiting
+                removeTypingIndicator();
+                
+                // Show question in chat
+                addMessageToChat('ai', question);
+                
+                // Get user answer
+                const userAnswer = await showClarificationModal(question);
+                
+                if (userAnswer) {
+                    addMessageToChat('user', userAnswer);
+                    showTypingIndicator('Resuming with your answer...');
+                }
+                
+                return userAnswer;
+            }
+        );
+        
+        // Handle result
+        if (!pollResult.success) {
+            throw new Error(pollResult.error);
+        }
+        
+        const result = pollResult.result;
+        
+        // Remove typing indicator
+        removeTypingIndicator();
+        
+        // Add AI response to chat
+        const displayMessage = result.answer && result.answer !== null && result.answer !== 'null'
+            ? result.answer
+            : result.message;
+        addMessageToChat('ai', displayMessage);
+        
+        // If there are more frontend tool calls, execute them
+        if (result.toolCalls && result.toolCalls.length > 0) {
+            // Filter out askUser if it somehow got through (shouldn't happen now)
+            const executableTools = result.toolCalls.filter(tc => tc.tool !== 'askUser');
+            if (executableTools.length > 0) {
+                await executeFrontendTools(executableTools, taskId);
+            }
+        }
+        
+    } catch (error) {
+        console.error('Error continuing task:', error);
+        throw error;
     }
 }
