@@ -7,7 +7,7 @@
 
 export const toolDefinition = {
   name: "writeDataToRange",
-  description: "Write 2D array data to a specific range in Excel",
+  description: "Write 2D array data (with optional formulas) to a specific range in Excel. Automatically detects and applies formulas (strings starting with '=').",
   executor: "frontend",
   parameters: {
     sheetName: {
@@ -23,7 +23,7 @@ export const toolDefinition = {
     data: {
       type: "array",
       required: true,
-      description: "2D array of data to write"
+      description: "2D array where each cell can be a static value (string/number) or a formula (string starting with '='). Formulas are automatically detected and applied."
     },
     overwrite: {
       type: "boolean",
@@ -42,6 +42,7 @@ export const toolDefinition = {
     rangeAddress: "string",
     rowsWritten: "number",
     columnsWritten: "number",
+    formulasApplied: "number",
     headerFormatted: "boolean"
   }
 };
@@ -102,31 +103,63 @@ export async function execute(params) {
 
       targetRange.load("address");
 
+      // Separate data into values and formulas
+      const formulaArray = [];
+      const valueArray = [];
+      let formulaCount = 0;
+
+      for (let i = 0; i < numRows; i++) {
+        const formulaRow = [];
+        const valueRow = [];
+        
+        for (let j = 0; j < numCols; j++) {
+          const cellData = normalizedData[i][j];
+          
+          // Check if it's a formula (string starting with '=')
+          if (typeof cellData === 'string' && cellData.startsWith('=')) {
+            formulaRow.push(cellData);
+            valueRow.push(''); // Placeholder for formula cells
+            formulaCount++;
+          } else {
+            formulaRow.push('');
+            valueRow.push(cellData === null || cellData === undefined ? '' : cellData);
+          }
+        }
+        
+        formulaArray.push(formulaRow);
+        valueArray.push(valueRow);
+      }
+
       // If not overwriting, check for existing data
       if (!overwrite) {
         targetRange.load("values");
         await context.sync();
 
         const existingValues = targetRange.values;
-        const newData = [];
+        const mergedValues = [];
 
         for (let i = 0; i < numRows; i++) {
           const row = [];
           for (let j = 0; j < numCols; j++) {
             // Only write if cell is empty
             if (existingValues[i][j] === "" || existingValues[i][j] === null) {
-              row.push(normalizedData[i][j]);
+              row.push(valueArray[i][j]);
             } else {
               row.push(existingValues[i][j]);
             }
           }
-          newData.push(row);
+          mergedValues.push(row);
         }
 
-        targetRange.values = newData;
+        targetRange.values = mergedValues;
       } else {
-        // Overwrite mode - write directly
-        targetRange.values = normalizedData;
+        // Overwrite mode - write values first
+        targetRange.values = valueArray;
+      }
+
+      // Apply formulas (this works in both overwrite and non-overwrite mode)
+      if (formulaCount > 0) {
+        targetRange.formulas = formulaArray;
       }
 
       // Auto-fit columns and rows
@@ -189,10 +222,11 @@ export async function execute(params) {
         rangeAddress: targetRange.address,
         rowsWritten: numRows,
         columnsWritten: numCols,
+        formulasApplied: formulaCount,
         headerFormatted: headerFormatted
       };
 
-      console.log(`  ✅ Wrote ${numRows}x${numCols} data to ${targetRange.address}`);
+      console.log(`  ✅ Wrote ${numRows}x${numCols} data to ${targetRange.address}${formulaCount > 0 ? ` (${formulaCount} formulas included)` : ''}`);
 
       return result;
 
