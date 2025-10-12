@@ -11,6 +11,18 @@ import { getAllToolDefinitions, printToolRegistry } from './tools/registry.js';
 const API_BASE_URL = 'https://41a36d0f8a03.ngrok-free.app';
 
 
+// Legacy context structure (for UI display)
+let excelContext = {
+    workbookName: null,
+    sheetName: null,
+    allSheets: [],
+    selectedRange: null,
+    selectedData: null,
+    headers: null,
+    selectedRanges: [],
+    isMultipleAreas: false
+};
+
 // NEW: Enhanced context structure (as per architecture)
 let enhancedContext = {
     initialContext: null,    // From captureInitialContext()
@@ -556,8 +568,11 @@ async function handleSendMessage() {
         // Remove typing indicator
         removeTypingIndicator();
 
-        // Add AI response to chat
-        addMessageToChat('ai', result.message);
+        // Add AI response to chat - prioritize 'answer' field if present
+        const displayMessage = result.answer && result.answer !== null && result.answer !== 'null'
+            ? result.answer
+            : result.message;
+        addMessageToChat('ai', displayMessage);
 
         // Execute frontend tool calls if present
         if (result.toolCalls && Array.isArray(result.toolCalls) && result.toolCalls.length > 0) {

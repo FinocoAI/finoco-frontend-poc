@@ -58,15 +58,25 @@ export async function execute(params) {
         throw new Error('Invalid data: must be a non-empty 2D array');
       }
 
-      // Validate data is 2D array
-      const numCols = data[0].length;
+      // Normalize data: find max columns and pad rows as needed
+      let numCols = 0;
       for (let i = 0; i < data.length; i++) {
-        if (!Array.isArray(data[i]) || data[i].length !== numCols) {
-          throw new Error(`Invalid data: row ${i} has inconsistent column count`);
+        if (!Array.isArray(data[i])) {
+          throw new Error(`Invalid data: row ${i} is not an array`);
         }
+        numCols = Math.max(numCols, data[i].length);
       }
 
-      const numRows = data.length;
+      // Pad rows to have consistent column count
+      const normalizedData = data.map(row => {
+        const paddedRow = [...row];
+        while (paddedRow.length < numCols) {
+          paddedRow.push(''); // Pad with empty strings
+        }
+        return paddedRow;
+      });
+
+      const numRows = normalizedData.length;
 
       // Get worksheet
       const worksheet = context.workbook.worksheets.getItem(sheetName);
@@ -99,7 +109,7 @@ export async function execute(params) {
           for (let j = 0; j < numCols; j++) {
             // Only write if cell is empty
             if (existingValues[i][j] === "" || existingValues[i][j] === null) {
-              row.push(data[i][j]);
+              row.push(normalizedData[i][j]);
             } else {
               row.push(existingValues[i][j]);
             }
@@ -110,7 +120,7 @@ export async function execute(params) {
         targetRange.values = newData;
       } else {
         // Overwrite mode - write directly
-        targetRange.values = data;
+        targetRange.values = normalizedData;
       }
 
       // Auto-fit columns and rows
