@@ -45,9 +45,11 @@ async function initializeApp() {
     document.getElementById('userInput').addEventListener('keydown', handleInputKeydown);
     document.getElementById('userInput').addEventListener('input', handleInputResize);
 
-    // Load initial context (both legacy and new)
+    // Load initial context (lightweight UI context only)
     await updateExcelContext();
-    await updateEnhancedContext();
+    
+    // Note: Enhanced context is now captured only when sending queries
+    // This reduces browser load on initialization
 
     // backen up or nott
     await checkAPIConnection();
@@ -215,9 +217,9 @@ async function debugToolExecution() {
 
 // Handle refresh button click
 async function handleRefreshContext() {
-    console.log('Manual refresh triggered');
+    console.log('Manual refresh triggered - updating UI context');
     await updateExcelContext();
-    await updateEnhancedContext();
+    // Note: Enhanced context is captured only when sending queries
 }
 
 // Auto-resize textarea
@@ -241,20 +243,20 @@ async function setupExcelEventListeners() {
         await Excel.run(async (context) => {
             const sheet = context.workbook.worksheets.getActiveWorksheet();
 
-            // Listen to selection changes
+            // Listen to selection changes - lightweight UI update only
             sheet.onSelectionChanged.add(async () => {
                 await updateExcelContext();
-                await updateEnhancedContext();
+                // Note: Heavy context capture removed to improve performance
             });
 
-            // Listen to sheet activation
+            // Listen to sheet activation - lightweight UI update only
             context.workbook.worksheets.onActivated.add(async () => {
                 await updateExcelContext();
-                await updateEnhancedContext();
+                // Note: Heavy context capture removed to improve performance
             });
 
             await context.sync();
-            console.log('Excel event listeners set up');
+            console.log('Excel event listeners set up (lightweight mode)');
         });
     } catch (error) {
         console.error('Error setting up Excel event listeners:', error);
@@ -460,7 +462,8 @@ async function handleSendMessage() {
     showTypingIndicator('Processing...');
 
     try {
-        // Refresh context before sending
+        // Capture full context only when sending query (optimized)
+        console.log('🔄 Capturing context for query...');
         await updateExcelContext();
         await updateEnhancedContext();
 
