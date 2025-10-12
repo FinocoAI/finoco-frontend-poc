@@ -10,19 +10,6 @@ import { getAllToolDefinitions, printToolRegistry } from './tools/registry.js';
 
 const API_BASE_URL = 'https://41a36d0f8a03.ngrok-free.app';
 
-// LEGACY: Old context structure - keeping for backward compatibility during transition
-// TODO: Remove this once backend is fully updated to use new context structure
-let excelContext = {
-    workbookName: '',
-    sheetName: '',
-    selectedRange: '',
-    selectedData: null,
-    headers: null,
-    allSheets: [],
-    // Support for multiple ranges
-    selectedRanges: [],  // Array of {address, data, headers} objects
-    isMultipleAreas: false
-};
 
 // NEW: Enhanced context structure (as per architecture)
 let enhancedContext = {
@@ -435,6 +422,11 @@ async function checkAPIConnection() {
 }
 
 // Handle send message
+// Generate unique request ID for deduplication
+function generateRequestId() {
+    return `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
 async function handleSendMessage() {
     const input = document.getElementById('userInput');
     const message = input.value.trim();
@@ -453,14 +445,14 @@ async function handleSendMessage() {
     addMessageToChat('user', message);
 
     // Show typing indicator
-    showTypingIndicator();
+    showTypingIndicator('Processing...');
 
     try {
-        // Refresh context before sending (both legacy and new)
+        // Refresh context before sending
         await updateExcelContext();
         await updateEnhancedContext();
 
-        // Build query payload using new architecture
+        // Build query payload
         const queryPayload = buildQueryPayload(
             message,
             enhancedContext.initialContext,
@@ -478,24 +470,88 @@ async function handleSendMessage() {
             throw new Error(`Invalid payload: ${validation.errors.join(', ')}`);
         }
 
-        // Send request to API with enhanced context
-        const response = await fetch(`${API_BASE_URL}/process`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'ngrok-skip-browser-warning': 'true'
-            },
-            body: JSON.stringify({
-                task: message,
-                enhancedPayload: queryPayload
-            })
-        });
+        // Generate unique request ID for deduplication
+        const requestId = generateRequestId();
+        console.log(`📋 Request ID: ${requestId}`);
 
-        if (!response.ok) {
-            throw new Error(`API error: ${response.status}`);
+        // Submit task to backend with retry logic (returns immediately with task_id)
+        let submitResult;
+        let taskId;
+        const maxRetries = 3;
+        let retryCount = 0;
+
+        while (retryCount < maxRetries) {
+            try {
+                console.log(`📤 Submitting task (attempt ${retryCount + 1}/${maxRetries})...`);
+
+                const submitResponse = await fetch(`${API_BASE_URL}/process`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'ngrok-skip-browser-warning': 'true'
+                    },
+                    body: JSON.stringify({
+                        task: message,
+                        requestId: requestId,
+                        enhancedPayload: queryPayload
+                    })
+                });
+
+                if (!submitResponse.ok) {
+                    throw new Error(`HTTP ${submitResponse.status}: ${submitResponse.statusText}`);
+                }
+
+                submitResult = await submitResponse.json();
+                taskId = submitResult.task_id;
+
+                console.log(`✓ Task submitted: ${taskId}`);
+                console.log(`  Status: ${submitResult.status}`);
+                break; // Success - exit retry loop
+
+            } catch (error) {
+                retryCount++;
+                console.error(`❌ Submit attempt ${retryCount} failed:`, error.message);
+
+                if (retryCount >= maxRetries) {
+                    throw new Error(`Failed to submit task after ${maxRetries} attempts: ${error.message}`);
+                }
+
+                // Wait before retry (faster retry for ngrok issues)
+                const waitTime = 500; // Fixed 500ms retry for ngrok instability
+                console.log(`⏳ Retrying in ${waitTime}ms...`);
+                updateTypingIndicator(`Connection error, retrying... (${retryCount}/${maxRetries})`);
+                await sleep(waitTime);
+            }
         }
 
-        const result = await response.json();
+        // If all retries failed, try to recover task using requestId
+        if (!taskId) {
+            console.warn('⚠️ Initial POST failed, attempting task recovery...');
+            updateTypingIndicator('Recovering task...');
+
+            try {
+                const recoveryResponse = await fetch(`${API_BASE_URL}/tasks/by-request/${requestId}`, {
+                    headers: {
+                        'ngrok-skip-browser-warning': 'true'
+                    }
+                });
+
+                if (recoveryResponse.ok) {
+                    const recoveryData = await recoveryResponse.json();
+                    taskId = recoveryData.task_id;
+                    console.log(`✓ Task recovered: ${taskId}`);
+                    console.log(`  Status: ${recoveryData.status}`);
+                } else {
+                    throw new Error('Task recovery failed');
+                }
+            } catch (recoveryError) {
+                console.error('Task recovery failed:', recoveryError);
+                throw new Error('Failed to submit task and recovery failed. Please try again.');
+            }
+        }
+
+        // Start polling for task completion
+        const result = await pollTaskStatus(taskId);
 
         // Remove typing indicator
         removeTypingIndicator();
@@ -503,23 +559,21 @@ async function handleSendMessage() {
         // Add AI response to chat
         addMessageToChat('ai', result.message);
 
-        // Execute tool calls if backend requests them
-        if (result.toolCalls && Array.isArray(result.toolCalls)) {
-            console.log(`🔧 Backend requested ${result.toolCalls.length} tool call(s)`);
+        // Execute frontend tool calls if present
+        if (result.toolCalls && Array.isArray(result.toolCalls) && result.toolCalls.length > 0) {
+            console.log(`🔧 Executing ${result.toolCalls.length} frontend tool(s)`);
 
-            // Execute tools in sequence
             for (const toolCall of result.toolCalls) {
                 try {
                     const toolResult = await executeTool(toolCall.tool, toolCall.params);
 
                     if (toolResult.success) {
-                        // Show success message for write operations
                         if (toolCall.tool === 'writeDataToRange') {
-                            addMessageToChat('ai', `✓ Data has been written to ${toolResult.result.rangeAddress}`, true);
+                            addMessageToChat('ai', `✓ Data written to ${toolResult.result.rangeAddress}`, true);
                         } else if (toolCall.tool === 'createChart') {
-                            addMessageToChat('ai', `✓ Chart "${toolResult.result.title}" has been created!`, true);
+                            addMessageToChat('ai', `✓ Chart "${toolResult.result.title}" created`, true);
                         } else if (toolCall.tool === 'createTable') {
-                            addMessageToChat('ai', `✓ Table "${toolResult.result.tableName}" has been created!`, true);
+                            addMessageToChat('ai', `✓ Table "${toolResult.result.tableName}" created`, true);
                         } else {
                             addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
                         }
@@ -527,7 +581,7 @@ async function handleSendMessage() {
                         addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${toolResult.error}`, true);
                     }
                 } catch (error) {
-                    console.error(`Tool execution failed:`, error);
+                    console.error(`Tool execution error:`, error);
                     addMessageToChat('ai', `⚠️ Failed to execute ${toolCall.tool}`, true);
                 }
             }
@@ -541,6 +595,93 @@ async function handleSendMessage() {
         sendButton.disabled = false;
         input.focus();
     }
+}
+
+// Poll task status until complete or failed
+async function pollTaskStatus(taskId) {
+    const pollInterval = 2000; // 2 seconds
+    const maxPolls = 300; // 10 minutes (300 polls × 2s)
+    let pollCount = 0;
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 5;
+
+    while (pollCount < maxPolls) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
+                headers: {
+                    'ngrok-skip-browser-warning': 'true'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Status check failed: HTTP ${response.status}`);
+            }
+
+            const status = await response.json();
+
+            // Reset error counter on successful poll
+            consecutiveErrors = 0;
+
+            // Update typing indicator with progress and elapsed time
+            const elapsed = status.elapsed_seconds || 0;
+            updateTypingIndicator(`${status.progress} (${elapsed}s)`);
+
+            console.log(`📊 Poll ${pollCount + 1}: ${status.status} - ${status.progress} (${elapsed}s)`);
+
+            // Check if task completed
+            if (status.status === 'complete') {
+                console.log(`✓ Task completed after ${elapsed}s`);
+                return status.result;
+            }
+
+            // Check if task failed
+            if (status.status === 'failed') {
+                throw new Error(status.error || 'Task processing failed');
+            }
+
+            // Wait before next poll
+            await sleep(pollInterval);
+            pollCount++;
+
+        } catch (error) {
+            consecutiveErrors++;
+            console.error(`Polling error (${consecutiveErrors}/${maxConsecutiveErrors}):`, error.message);
+
+            // If too many consecutive errors, give up
+            if (consecutiveErrors >= maxConsecutiveErrors) {
+                throw new Error(`Polling failed after ${maxConsecutiveErrors} consecutive errors: ${error.message}`);
+            }
+
+            // Otherwise, wait and retry
+            updateTypingIndicator(`Connection issue, retrying... (${consecutiveErrors}/${maxConsecutiveErrors})`);
+            await sleep(pollInterval);
+            pollCount++;
+        }
+    }
+
+    throw new Error('Task timeout - exceeded maximum wait time (10 minutes)');
+}
+
+// Update typing indicator text with progress
+function updateTypingIndicator(text) {
+    const indicator = document.querySelector('.typing-indicator');
+    if (indicator) {
+        const contentDiv = indicator.querySelector('.typing-indicator-content');
+        if (contentDiv) {
+            // Keep the animated dots, just update the text
+            const dotsSpan = contentDiv.querySelector('.typing-dots') || document.createElement('span');
+            dotsSpan.className = 'typing-dots';
+            dotsSpan.innerHTML = '<span>.</span><span>.</span><span>.</span>';
+
+            contentDiv.innerHTML = `<span>${text}</span> `;
+            contentDiv.appendChild(dotsSpan);
+        }
+    }
+}
+
+// Helper: Sleep function
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Add message to chat
