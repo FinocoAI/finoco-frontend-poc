@@ -30,13 +30,19 @@ export const toolDefinition = {
       required: false,
       default: true,
       description: "If false, will only write to empty cells"
+    },
+    headerFormat: {
+      type: "object",
+      required: false,
+      description: "Optional formatting to apply to the first row (headers). Same properties as formatRange: fontBold, fontSize, fontColor, fillColor, horizontalAlignment, etc."
     }
   },
   returns: {
     sheetName: "string",
     rangeAddress: "string",
     rowsWritten: "number",
-    columnsWritten: "number"
+    columnsWritten: "number",
+    headerFormatted: "boolean"
   }
 };
 
@@ -45,7 +51,7 @@ export async function execute(params) {
 
   return Excel.run(async (context) => {
     try {
-      const { sheetName, startCell, data, overwrite = true } = params;
+      const { sheetName, startCell, data, overwrite = true, headerFormat } = params;
 
       // Validate parameters
       if (!sheetName || typeof sheetName !== 'string') {
@@ -129,11 +135,61 @@ export async function execute(params) {
 
       await context.sync();
 
+      // Apply header formatting if provided
+      let headerFormatted = false;
+      if (headerFormat && numRows > 0) {
+        const headerRange = worksheet.getRangeByIndexes(
+          startRange.rowIndex,
+          startRange.columnIndex,
+          1,  // Just first row
+          numCols
+        );
+
+        // Apply header formatting
+        if (headerFormat.numberFormat) {
+          headerRange.numberFormat = headerFormat.numberFormat;
+        }
+        if (headerFormat.fontBold !== undefined) {
+          headerRange.format.font.bold = headerFormat.fontBold;
+        }
+        if (headerFormat.fontItalic !== undefined) {
+          headerRange.format.font.italic = headerFormat.fontItalic;
+        }
+        if (headerFormat.fontSize) {
+          headerRange.format.font.size = headerFormat.fontSize;
+        }
+        if (headerFormat.fontColor) {
+          headerRange.format.font.color = headerFormat.fontColor;
+        }
+        if (headerFormat.fillColor) {
+          headerRange.format.fill.color = headerFormat.fillColor;
+        }
+        if (headerFormat.horizontalAlignment) {
+          headerRange.format.horizontalAlignment = headerFormat.horizontalAlignment;
+        }
+        if (headerFormat.verticalAlignment) {
+          headerRange.format.verticalAlignment = headerFormat.verticalAlignment;
+        }
+        if (headerFormat.borders) {
+          const borderTypes = ['EdgeTop', 'EdgeBottom', 'EdgeLeft', 'EdgeRight'];
+          borderTypes.forEach(type => {
+            if (headerFormat.borders[type.toLowerCase()]) {
+              headerRange.format.borders.getItem(type).style = headerFormat.borders[type.toLowerCase()];
+            }
+          });
+        }
+
+        await context.sync();
+        headerFormatted = true;
+        console.log(`  ✅ Applied header formatting to first row`);
+      }
+
       const result = {
         sheetName: sheetName,
         rangeAddress: targetRange.address,
         rowsWritten: numRows,
-        columnsWritten: numCols
+        columnsWritten: numCols,
+        headerFormatted: headerFormatted
       };
 
       console.log(`  ✅ Wrote ${numRows}x${numCols} data to ${targetRange.address}`);

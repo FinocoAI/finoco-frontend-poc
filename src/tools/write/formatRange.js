@@ -7,7 +7,7 @@
 
 export const toolDefinition = {
   name: "formatRange",
-  description: "Apply formatting (font, fill, number format) to a range",
+  description: "Apply formatting (font, fill, number format) to a range. IMPORTANT: Use range notation (e.g., 'A1:K1') to format multiple cells with the same formatting in a single call instead of making separate calls for each cell.",
   executor: "frontend",
   parameters: {
     sheetName: {
@@ -18,12 +18,12 @@ export const toolDefinition = {
     address: {
       type: "string",
       required: true,
-      description: "Range address (e.g., 'A1:D10')"
+      description: "Range address - use range notation like 'A1:D10' to batch multiple cells with same formatting"
     },
     format: {
       type: "object",
       required: true,
-      description: "Format object with properties: numberFormat, fontBold, fontItalic, fontSize, fontColor, fillColor, horizontalAlignment, verticalAlignment"
+      description: "Format object with properties: numberFormat, fontBold, fontItalic, fontSize, fontColor, fillColor, horizontalAlignment, verticalAlignment, borders"
     }
   },
   returns: {
