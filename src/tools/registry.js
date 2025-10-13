@@ -30,6 +30,7 @@ import * as createTable from './write/createTable.js';
 import * as applyFormula from './write/applyFormula.js';
 import * as formatRange from './write/formatRange.js';
 import * as createNewSheet from './write/createNewSheet.js';
+import * as addCellNote from './write/addCellNote.js';
 
 /**
  * Tool Registry
@@ -77,6 +78,9 @@ export const toolRegistry = {
 
     // Charts
     createChart,
+
+    // Annotations and citations
+    addCellNote,
   }
 };
 
