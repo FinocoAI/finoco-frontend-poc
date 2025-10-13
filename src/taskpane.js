@@ -1,6 +1,6 @@
 /**
- * Main Taskpane Module
- * Orchestrates the Excel AI Agent application
+ * Main Taskpane Module - Updated for simplified backend
+ * Orchestrates the Excel AI Agent application with conversation-based chat
  */
 
 // Import context modules
@@ -27,15 +27,15 @@ import { showClarificationModal } from './ui/clarificationModal.js';
 import { 
     API_BASE_URL,
     checkAPIHealth, 
-    submitTask, 
-    recoverTask, 
-    pollTaskStatus,
-    generateRequestId 
+    initiateChat, 
+    pollConversation,
+    respondToConversation 
 } from './api/apiClient.js';
 
 // Import tool system
 import { executeTool } from './tools/executor.js';
 import { printToolRegistry } from './tools/registry.js';
+import { executeBatchedTools } from './tools/batchExecutor.js';
 
 // Import debug utilities
 import { setupDebugShortcuts } from './debug/debugUtils.js';
@@ -193,46 +193,31 @@ async function handleSendMessage() {
             throw new Error(`Invalid payload: ${validation.errors.join(', ')}`);
         }
 
-        // Generate unique request ID
-        const requestId = generateRequestId();
-        console.log(`📋 Request ID: ${requestId}`);
-
-        // Submit task with retry logic
-        const submitResult = await submitTask(
+        // Initiate chat
+        const initResult = await initiateChat(
             message, 
-            queryPayload, 
-            requestId,
+            queryPayload,
             (retryCount, maxRetries) => {
                 updateTypingIndicator(`Connection error, retrying... (${retryCount}/${maxRetries})`);
             }
         );
 
-        let taskId = submitResult?.taskId;
-
-        // If submission failed, try to recover task
-        if (!submitResult.success) {
-            console.warn('⚠️ Initial POST failed, attempting task recovery...');
-            updateTypingIndicator('Recovering task...');
-
-            const recoveryResult = await recoverTask(requestId);
-            if (recoveryResult.success) {
-                taskId = recoveryResult.taskId;
-            } else {
-                throw new Error(submitResult.error || 'Failed to submit task and recovery failed. Please try again.');
-            }
+        if (!initResult.success) {
+            throw new Error(initResult.error || 'Failed to initiate chat');
         }
 
-        // Poll for task completion
-        const pollResult = await pollTaskStatus(
-            taskId,
+        const conversationId = initResult.conversationId;
+        console.log(`💬 Conversation ID: ${conversationId}`);
+
+        // Poll for conversation completion
+        const pollResult = await pollConversation(
+            conversationId,
             // Progress callback
-            (progress, elapsed, status) => {
-                updateTypingIndicator(`${progress} (${elapsed}s)`);
+            (explanation, elapsed, status) => {
+                updateTypingIndicator(`${explanation} (${elapsed.toFixed(0)}s)`);
             },
             // Clarification callback
-            async (status) => {
-                const question = status.result?.clarification_question || "I need more information to proceed.";
-                
+            async (question, message) => {
                 // Remove typing indicator while waiting
                 removeTypingIndicator();
                 
@@ -248,6 +233,10 @@ async function handleSendMessage() {
                 }
                 
                 return userAnswer;
+            },
+            // Tool execution callback
+            async (toolCalls) => {
+                return await executeFrontendTools(toolCalls);
             }
         );
 
@@ -264,16 +253,30 @@ async function handleSendMessage() {
         // Add AI response to chat - prioritize 'answer' field if present
         const displayMessage = result.answer && result.answer !== null && result.answer !== 'null'
             ? result.answer
-            : result.message;
-        addMessageToChat('ai', displayMessage);
-
-        // Execute frontend tool calls if present
-        await executeFrontendTools(result.toolCalls, taskId);
+            : result.explanation;
+        
+        if (displayMessage) {
+            addMessageToChat('ai', displayMessage);
+        }
 
     } catch (error) {
         console.error('Error processing message:', error);
         removeTypingIndicator();
-        addMessageToChat('ai', `Sorry, I encountered an error: ${error.message}`);
+        
+        // Show user-friendly error message
+        let errorMessage = `Sorry, I encountered an error: ${error.message}`;
+        
+        // Provide specific guidance for connection errors
+        if (error.message.includes('Failed to initiate chat') || 
+            error.message.includes('Failed to fetch') ||
+            error.message.includes('Connection error')) {
+            errorMessage += '\n\n⚠️ Cannot reach backend server. Please check:\n' +
+                           '• Backend is running (python backend/main.py)\n' +
+                           '• Ngrok tunnel is active\n' +
+                           '• API_BASE_URL in apiClient.js matches your ngrok URL';
+        }
+        
+        addMessageToChat('ai', errorMessage);
     } finally {
         sendButton.disabled = false;
         input.focus();
@@ -282,10 +285,14 @@ async function handleSendMessage() {
 
 /**
  * Execute frontend tool calls returned by backend
+ * Returns array of results for READ tools (to send back to backend)
+ * 
+ * USES BATCHED EXECUTION: All WRITE tools are executed in a single Excel.run() context
+ * for maximum efficiency and reliability. READ tools are executed sequentially.
  */
-async function executeFrontendTools(toolCalls, taskId) {
+async function executeFrontendTools(toolCalls) {
     if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) {
-        return;
+        return [];
     }
 
     console.log(`🔧 Executing ${toolCalls.length} frontend tool(s)`);
@@ -295,168 +302,92 @@ async function executeFrontendTools(toolCalls, taskId) {
                         'getCellPrecedents', 'getCellDependents', 'getRelatedData', 'getChartSourceData',
                         'searchValues', 'getNamedRangeData'];
     
+    // Separate READ and WRITE tools
+    const readTools = toolCalls.filter(tc => READ_TOOLS.includes(tc.tool));
+    const writeTools = toolCalls.filter(tc => !READ_TOOLS.includes(tc.tool));
+    
     const toolResults = [];
-    let hasReadTools = false;
 
-    for (const toolCall of toolCalls) {
+    // PHASE 1: Execute WRITE tools in batched mode (single Excel.run)
+    if (writeTools.length > 0) {
+        console.log(`📦 Batching ${writeTools.length} WRITE tool(s) into single Excel.run()`);
+        
         try {
-            const toolResult = await executeTool(toolCall.tool, toolCall.params);
-
-            if (toolResult.success) {
-                // Check if this is a READ tool
-                const isReadTool = READ_TOOLS.includes(toolCall.tool);
+            const batchResults = await executeBatchedTools(writeTools);
+            
+            // Display results
+            for (let i = 0; i < batchResults.length; i++) {
+                const result = batchResults[i];
+                const toolCall = writeTools[i];
                 
-                if (isReadTool) {
-                    hasReadTools = true;
-                    // Store result to send back to backend
-                    toolResults.push({
-                        tool: toolCall.tool,
-                        params: toolCall.params,
-                        result: toolResult.result,
-                        success: true
-                    });
-                    addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
-                } else {
+                if (result.success) {
                     // WRITE tool - show appropriate success message
                     if (toolCall.tool === 'writeDataToRange') {
-                        addMessageToChat('ai', `✓ Data written to ${toolResult.result.rangeAddress}`, true);
+                        addMessageToChat('ai', `✓ Data written to ${result.result.rangeAddress}`, true);
                     } else if (toolCall.tool === 'createChart') {
-                        addMessageToChat('ai', `✓ Chart "${toolResult.result.title}" created`, true);
+                        addMessageToChat('ai', `✓ Chart created`, true);
                     } else if (toolCall.tool === 'createTable') {
-                        addMessageToChat('ai', `✓ Table "${toolResult.result.tableName}" created`, true);
+                        addMessageToChat('ai', `✓ Table "${result.result.tableName}" created`, true);
                     } else if (toolCall.tool === 'applyFormula') {
-                        addMessageToChat('ai', `✓ Formula applied to ${toolResult.result.rangeAddress}`, true);
+                        addMessageToChat('ai', `✓ Formula applied to ${result.result.address}`, true);
                     } else if (toolCall.tool === 'formatRange') {
-                        addMessageToChat('ai', `✓ Formatting applied to ${toolResult.result.rangeAddress}`, true);
+                        addMessageToChat('ai', `✓ Formatting applied to ${result.result.address}`, true);
                     } else if (toolCall.tool === 'createNewSheet') {
-                        addMessageToChat('ai', `✓ Sheet "${toolResult.result.sheetName}" created`, true);
+                        addMessageToChat('ai', `✓ Sheet "${result.result.sheetName}" created`, true);
+                    } else if (toolCall.tool === 'addCellNote') {
+                        addMessageToChat('ai', `✓ Citation added to ${result.result.cellAddress}`, true);
                     } else if (toolCall.tool === 'insertRows' || toolCall.tool === 'deleteRows') {
                         addMessageToChat('ai', `✓ Rows modified successfully`, true);
                     } else {
                         addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
                     }
-                }
-            } else {
-                addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${toolResult.error}`, true);
-                if (READ_TOOLS.includes(toolCall.tool)) {
-                    toolResults.push({
-                        tool: toolCall.tool,
-                        params: toolCall.params,
-                        result: null,
-                        success: false,
-                        error: toolResult.error
-                    });
+                } else {
+                    addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${result.error}`, true);
                 }
             }
         } catch (error) {
-            console.error(`Tool execution error:`, error);
-            addMessageToChat('ai', `⚠️ Failed to execute ${toolCall.tool}`, true);
-            if (READ_TOOLS.includes(toolCall.tool)) {
+            console.error(`Batch execution error:`, error);
+            addMessageToChat('ai', `⚠️ Batch execution failed: ${error.message}`, true);
+        }
+    }
+
+    // PHASE 2: Execute READ tools sequentially (need results)
+    for (const toolCall of readTools) {
+        try {
+            const toolResult = await executeTool(toolCall.tool, toolCall.params);
+
+            if (toolResult.success) {
+                // Store result to send back to backend
+                toolResults.push({
+                    tool: toolCall.tool,
+                    params: toolCall.params,
+                    result: toolResult.result,
+                    success: true
+                });
+                addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
+            } else {
+                addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${toolResult.error}`, true);
                 toolResults.push({
                     tool: toolCall.tool,
                     params: toolCall.params,
                     result: null,
                     success: false,
-                    error: error.message
+                    error: toolResult.error
                 });
             }
-        }
-    }
-
-    // If there were READ tools, send results back to backend for continued processing
-    if (hasReadTools && toolResults.length > 0) {
-        console.log(`📤 Sending READ tool results back to backend for continuation...`);
-        showTypingIndicator('Analyzing data...');
-        
-        try {
-            await continueTaskWithResults(taskId, toolResults);
         } catch (error) {
-            console.error('Failed to continue task with results:', error);
-            removeTypingIndicator();
-            addMessageToChat('ai', `⚠️ Failed to continue analysis: ${error.message}`, true);
+            console.error(`Tool execution error:`, error);
+            addMessageToChat('ai', `⚠️ Failed to execute ${toolCall.tool}`, true);
+            toolResults.push({
+                tool: toolCall.tool,
+                params: toolCall.params,
+                result: null,
+                success: false,
+                error: error.message
+            });
         }
     }
-}
 
-/**
- * Continue task with tool results (for READ tools)
- */
-async function continueTaskWithResults(taskId, toolResults) {
-    try {
-        // Send tool results to backend
-        const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/continue`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'ngrok-skip-browser-warning': 'true'
-            },
-            body: JSON.stringify({
-                toolResults: toolResults
-            })
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        console.log(`✓ Tool results sent, polling for continued processing...`);
-        
-        // Poll for task completion
-        const pollResult = await pollTaskStatus(
-            taskId,
-            // Progress callback
-            (progress, elapsed) => {
-                updateTypingIndicator(`${progress} (${elapsed}s)`);
-            },
-            // Clarification callback - handle if agent needs clarification after reading data
-            async (status) => {
-                const question = status.result?.clarification_question || "I need more information to proceed.";
-                
-                // Remove typing indicator while waiting
-                removeTypingIndicator();
-                
-                // Show question in chat
-                addMessageToChat('ai', question);
-                
-                // Get user answer
-                const userAnswer = await showClarificationModal(question);
-                
-                if (userAnswer) {
-                    addMessageToChat('user', userAnswer);
-                    showTypingIndicator('Resuming with your answer...');
-                }
-                
-                return userAnswer;
-            }
-        );
-        
-        // Handle result
-        if (!pollResult.success) {
-            throw new Error(pollResult.error);
-        }
-        
-        const result = pollResult.result;
-        
-        // Remove typing indicator
-        removeTypingIndicator();
-        
-        // Add AI response to chat
-        const displayMessage = result.answer && result.answer !== null && result.answer !== 'null'
-            ? result.answer
-            : result.message;
-        addMessageToChat('ai', displayMessage);
-        
-        // If there are more frontend tool calls, execute them
-        if (result.toolCalls && result.toolCalls.length > 0) {
-            // Filter out askUser if it somehow got through (shouldn't happen now)
-            const executableTools = result.toolCalls.filter(tc => tc.tool !== 'askUser');
-            if (executableTools.length > 0) {
-                await executeFrontendTools(executableTools, taskId);
-            }
-        }
-        
-    } catch (error) {
-        console.error('Error continuing task:', error);
-        throw error;
-    }
+    // Return results for READ tools (if any)
+    return toolResults;
 }

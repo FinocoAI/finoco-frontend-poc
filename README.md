@@ -2,6 +2,15 @@
 
 AI that understands your spreadsheets. Frontend application and tools to be executed in frontend.
 
+**✨ Updated:** Now using simplified conversation-based architecture with `conversation_id` instead of `task_id`.
+
+## Recent Changes
+
+- **Simplified API**: Now using `/chat/initiate`, `/chat/{conversation_id}/poll`, `/chat/{conversation_id}/respond`
+- **Conversation-based**: Single conversation ID tracks entire chat flow
+- **Unified Response**: Both clarifications and tool results use same respond endpoint
+- **See [FRONTEND_CHANGES.md](./FRONTEND_CHANGES.md) for detailed migration guide**
+
 ## Architecture
 
 ### Core Components
@@ -10,7 +19,12 @@ AI that understands your spreadsheets. Frontend application and tools to be exec
 - Initializes Office.js and UI event listeners
 - Manages chat interface and user interactions
 - Coordinates context capture and tool execution
-- Handles backend API communication
+- Handles backend API communication (updated for conversation-based flow)
+
+**[src/api/apiClient.js](src/api/apiClient.js)** - Backend communication (Updated)
+- `initiateChat()` - Start new conversation
+- `pollConversation()` - Check conversation status
+- `respondToConversation()` - Send clarifications or tool results
 
 **[src/contextCapture.js](src/contextCapture.js)** - Workbook state capture
 - Captures initial workbook context (sheets, named ranges, tables)
@@ -52,7 +66,7 @@ AI that understands your spreadsheets. Frontend application and tools to be exec
 - `getChartSourceData` - Get chart source data
 
 **Write Tools** ([src/tools/write/](src/tools/write/))
-- `writeDataToRange` - Write data to ranges
+- `writeDataToRange` - Write data to ranges (with formula support)
 - `createChart` - Create charts
 - `insertRows` - Insert rows
 - `deleteRows` - Delete rows
@@ -60,6 +74,7 @@ AI that understands your spreadsheets. Frontend application and tools to be exec
 - `applyFormula` - Apply formulas
 - `formatRange` - Format ranges
 - `createNewSheet` - Create worksheets
+- `addCellNote` - Add citations and notes to cells
 
 ## Adding New Tools
 
@@ -179,31 +194,55 @@ await debugToolExecution()
 - `Ctrl/Cmd + Shift + K` - Run tool tests
 - `Ctrl/Cmd + Shift + D` - Capture and log context
 
-## API Integration
+## API Integration (Updated)
 
-Backend endpoint: `POST /process`
-
-Payload structure:
-```json
+### Initialize Conversation
+```javascript
+POST /chat/initiate
 {
-  "task": "User query text",
+  "query": "User query text",
   "enhancedPayload": {
-    "query": "User query",
     "initialContext": { /* workbook context */ },
     "userSelection": { /* selection context */ }
   }
 }
+
+→ Returns: { conversation_id, status: "processing" }
 ```
 
-Backend can request tool execution via response:
-```json
-{
-  "message": "AI response",
-  "toolCalls": [
-    {
-      "tool": "writeDataToRange",
-      "params": { /* tool parameters */ }
-    }
-  ]
+### Poll Conversation
+```javascript
+GET /chat/{conversation_id}/poll
+
+→ Returns: {
+  "status": "processing|needs_clarification|needs_tool_execution|complete",
+  "message": {
+    "explanation": "...",
+    "tool_call_type": "...",
+    "toolCalls": [...],
+    "answer": "..."
+  }
 }
 ```
+
+### Respond to Conversation
+```javascript
+POST /chat/{conversation_id}/respond
+{
+  "content": "user answer" OR "Tool results: {...}"
+}
+
+→ Returns: { status: "processing" }
+```
+
+## Conversation Flow
+
+1. **User sends message** → `initiateChat()` → get `conversation_id`
+2. **Frontend polls** → `pollConversation()` → check status
+3. **If needs clarification** → show modal → send answer → resume polling
+4. **If needs tools** → execute tools → send results (if READ tools) → resume polling
+5. **If complete** → show final message
+
+---
+
+**For detailed migration information, see [FRONTEND_CHANGES.md](./FRONTEND_CHANGES.md)**

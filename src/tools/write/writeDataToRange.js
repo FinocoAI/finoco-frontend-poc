@@ -162,6 +162,15 @@ export async function execute(params) {
         targetRange.formulas = formulaArray;
       }
 
+      // Critical: Sync and allow Excel to calculate formulas BEFORE any formatting
+      await context.sync();
+      
+      // Force Excel to recalculate (ensures formulas are computed before formatting)
+      if (formulaCount > 0) {
+        context.workbook.application.calculate(Excel.CalculationType.recalculate);
+        await context.sync();
+      }
+
       // Auto-fit columns and rows
       targetRange.format.autofitColumns();
       targetRange.format.autofitRows();
@@ -198,16 +207,21 @@ export async function execute(params) {
           headerRange.format.fill.color = headerFormat.fillColor;
         }
         if (headerFormat.horizontalAlignment) {
-          headerRange.format.horizontalAlignment = headerFormat.horizontalAlignment;
+          // Excel API requires lowercase alignment values
+          headerRange.format.horizontalAlignment = headerFormat.horizontalAlignment.toLowerCase();
         }
         if (headerFormat.verticalAlignment) {
-          headerRange.format.verticalAlignment = headerFormat.verticalAlignment;
+          // Excel API requires lowercase alignment values
+          headerRange.format.verticalAlignment = headerFormat.verticalAlignment.toLowerCase();
         }
         if (headerFormat.borders) {
           const borderTypes = ['EdgeTop', 'EdgeBottom', 'EdgeLeft', 'EdgeRight'];
           borderTypes.forEach(type => {
-            if (headerFormat.borders[type.toLowerCase()]) {
-              headerRange.format.borders.getItem(type).style = headerFormat.borders[type.toLowerCase()];
+            const borderValue = headerFormat.borders[type.toLowerCase()];
+            if (borderValue) {
+              // If boolean true, use "Continuous" style; otherwise use the provided style string
+              const borderStyle = typeof borderValue === 'boolean' ? 'Continuous' : borderValue;
+              headerRange.format.borders.getItem(type).style = borderStyle;
             }
           });
         }
