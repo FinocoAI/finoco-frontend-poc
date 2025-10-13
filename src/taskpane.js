@@ -285,7 +285,7 @@ async function handleSendMessage() {
 
 /**
  * Execute frontend tool calls returned by backend
- * Returns array of results for READ tools (to send back to backend)
+ * Returns array of ALL tool results (READ and WRITE, successes and failures) to send back to backend
  * 
  * USES BATCHED EXECUTION: All WRITE tools are executed in a single Excel.run() context
  * for maximum efficiency and reliability. READ tools are executed sequentially.
@@ -315,12 +315,20 @@ async function executeFrontendTools(toolCalls) {
         try {
             const batchResults = await executeBatchedTools(writeTools);
             
-            // Display results
+            // Display results AND collect for backend
             for (let i = 0; i < batchResults.length; i++) {
                 const result = batchResults[i];
                 const toolCall = writeTools[i];
                 
                 if (result.success) {
+                    // Add to results for backend
+                    toolResults.push({
+                        tool: toolCall.tool,
+                        params: toolCall.params,
+                        result: result.result,
+                        success: true
+                    });
+                    
                     // WRITE tool - show appropriate success message
                     if (toolCall.tool === 'writeDataToRange') {
                         addMessageToChat('ai', `✓ Data written to ${result.result.rangeAddress}`, true);
@@ -342,12 +350,35 @@ async function executeFrontendTools(toolCalls) {
                         addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
                     }
                 } else {
+                    // Add error to results for backend
+                    toolResults.push({
+                        tool: toolCall.tool,
+                        params: toolCall.params,
+                        result: null,
+                        success: false,
+                        error: result.error,
+                        errorType: result.errorType,
+                        errorDetails: result.errorDetails
+                    });
+                    
                     addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${result.error}`, true);
                 }
             }
         } catch (error) {
             console.error(`Batch execution error:`, error);
             addMessageToChat('ai', `⚠️ Batch execution failed: ${error.message}`, true);
+            
+            // Add batch-level error for all write tools
+            for (const toolCall of writeTools) {
+                toolResults.push({
+                    tool: toolCall.tool,
+                    params: toolCall.params,
+                    result: null,
+                    success: false,
+                    error: `Batch execution failed: ${error.message}`,
+                    errorType: error.name || 'BatchExecutionError'
+                });
+            }
         }
     }
 
@@ -383,11 +414,13 @@ async function executeFrontendTools(toolCalls) {
                 params: toolCall.params,
                 result: null,
                 success: false,
-                error: error.message
+                error: error.message,
+                errorType: error.name || 'Error'
             });
         }
     }
 
-    // Return results for READ tools (if any)
+    // Return ALL results (READ and WRITE, successes and failures)
+    console.log(`📋 Returning ${toolResults.length} tool result(s) to backend`);
     return toolResults;
 }
