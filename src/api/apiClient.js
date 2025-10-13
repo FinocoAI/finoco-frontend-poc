@@ -161,41 +161,33 @@ export async function pollConversation(conversationId, onProgress, onClarificati
                     };
                 }
 
-                // Execute tools and get results
+                // Execute tools and get ALL results (READ and WRITE, successes and failures)
                 const toolResults = await onToolExecutionNeeded(data.message.toolCalls || []);
                 
-                // Send results back to backend (if there were READ tools)
-                if (toolResults && toolResults.length > 0) {
-                    const submitSuccess = await respondToConversation(
-                        conversationId, 
-                        `Tool results:\n${JSON.stringify(toolResults, null, 2)}`
-                    );
-                    
-                    if (!submitSuccess) {
-                        return { success: false, error: 'Failed to submit tool results' };
-                    }
-                    
-                    // Continue polling for next response
-                    pollCount++;
-                    await sleep(500);
-                    continue;
-                } else {
-                    // No READ tools, just WRITE tools - acknowledge completion to backend
-                    console.log(`✓ Write-only tools completed, notifying backend...`);
-                    const submitSuccess = await respondToConversation(
-                        conversationId, 
-                        'Frontend tools executed successfully (write-only batch)'
-                    );
-                    
-                    if (!submitSuccess) {
-                        return { success: false, error: 'Failed to acknowledge tool execution' };
-                    }
-                    
-                    // Continue polling for backend's final response
-                    pollCount++;
-                    await sleep(500);
-                    continue;
+                // Always send results back to backend (even if empty or write-only)
+                // This allows the agent to see failures and retry/fix them
+                const resultsSummary = {
+                    executed: toolResults.length,
+                    successful: toolResults.filter(r => r.success).length,
+                    failed: toolResults.filter(r => !r.success).length,
+                    results: toolResults
+                };
+                
+                console.log(`📊 Tool execution summary: ${resultsSummary.successful} succeeded, ${resultsSummary.failed} failed`);
+                
+                const submitSuccess = await respondToConversation(
+                    conversationId, 
+                    JSON.stringify(resultsSummary, null, 2)
+                );
+                
+                if (!submitSuccess) {
+                    return { success: false, error: 'Failed to submit tool results' };
                 }
+                
+                // Continue polling for next response
+                pollCount++;
+                await sleep(500);
+                continue;
             }
 
             if (data.status === 'failed') {

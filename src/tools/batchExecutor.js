@@ -71,7 +71,10 @@ export async function executeBatchedTools(toolCalls) {
           results.push({
             success: false,
             tool: tool,
-            error: error.message,
+            params: params,
+            error: error.message || String(error),
+            errorType: error.name || 'Error',
+            errorDetails: error.stack ? error.stack.split('\n')[0] : undefined
           });
           // Continue with other tools instead of failing entire batch
         }
