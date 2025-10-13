@@ -86,18 +86,23 @@ export async function execute(params) {
 
       // Apply alignment
       if (format.horizontalAlignment) {
-        range.format.horizontalAlignment = format.horizontalAlignment;
+        // Excel API requires lowercase alignment values
+        range.format.horizontalAlignment = format.horizontalAlignment.toLowerCase();
       }
       if (format.verticalAlignment) {
-        range.format.verticalAlignment = format.verticalAlignment;
+        // Excel API requires lowercase alignment values
+        range.format.verticalAlignment = format.verticalAlignment.toLowerCase();
       }
 
       // Apply borders
       if (format.borders) {
         const borderTypes = ['EdgeTop', 'EdgeBottom', 'EdgeLeft', 'EdgeRight'];
         borderTypes.forEach(type => {
-          if (format.borders[type.toLowerCase()]) {
-            range.format.borders.getItem(type).style = format.borders[type.toLowerCase()];
+          const borderValue = format.borders[type.toLowerCase()];
+          if (borderValue) {
+            // If boolean true, use "Continuous" style; otherwise use the provided style string
+            const borderStyle = typeof borderValue === 'boolean' ? 'Continuous' : borderValue;
+            range.format.borders.getItem(type).style = borderStyle;
           }
         });
       }

@@ -1,16 +1,9 @@
 /**
- * API Client Module
- * Handles all backend communication including task submission and polling
+ * API Client Module - Simplified for new backend architecture
+ * Handles all backend communication with conversation-based chat
  */
 
-export const API_BASE_URL = 'https://41a36d0f8a03.ngrok-free.app';
-
-/**
- * Generate unique request ID for deduplication
- */
-export function generateRequestId() {
-    return `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-}
+export const API_BASE_URL = 'https://4d21a07c0ded.ngrok-free.app';
 
 /**
  * Check API health status
@@ -30,25 +23,24 @@ export async function checkAPIHealth() {
 }
 
 /**
- * Submit task to backend with retry logic
+ * Initiate a new conversation/chat
  */
-export async function submitTask(message, queryPayload, requestId, onRetry) {
+export async function initiateChat(message, queryPayload, onRetry) {
     const maxRetries = 3;
     let retryCount = 0;
 
     while (retryCount < maxRetries) {
         try {
-            console.log(`📤 Submitting task (attempt ${retryCount + 1}/${maxRetries})...`);
+            console.log(`📤 Initiating chat (attempt ${retryCount + 1}/${maxRetries})...`);
 
-            const response = await fetch(`${API_BASE_URL}/process`, {
+            const response = await fetch(`${API_BASE_URL}/chat/initiate`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'ngrok-skip-browser-warning': 'true'
                 },
                 body: JSON.stringify({
-                    task: message,
-                    requestId: requestId,
+                    query: message,
                     enhancedPayload: queryPayload
                 })
             });
@@ -58,21 +50,21 @@ export async function submitTask(message, queryPayload, requestId, onRetry) {
             }
 
             const result = await response.json();
-            const taskId = result.task_id;
+            const conversationId = result.conversation_id;
 
-            console.log(`✓ Task submitted: ${taskId}`);
+            console.log(`✓ Chat initiated: ${conversationId}`);
             console.log(`  Status: ${result.status}`);
             
-            return { success: true, taskId, result };
+            return { success: true, conversationId, result };
 
         } catch (error) {
             retryCount++;
-            console.error(`❌ Submit attempt ${retryCount} failed:`, error.message);
+            console.error(`❌ Initiate attempt ${retryCount} failed:`, error.message);
 
             if (retryCount >= maxRetries) {
                 return { 
                     success: false, 
-                    error: `Failed to submit task after ${maxRetries} attempts: ${error.message}` 
+                    error: `Failed to initiate chat after ${maxRetries} attempts: ${error.message}` 
                 };
             }
 
@@ -88,35 +80,9 @@ export async function submitTask(message, queryPayload, requestId, onRetry) {
 }
 
 /**
- * Recover task using request ID
+ * Poll conversation status
  */
-export async function recoverTask(requestId) {
-    try {
-        console.warn('⚠️ Attempting task recovery...');
-        
-        const response = await fetch(`${API_BASE_URL}/tasks/by-request/${requestId}`, {
-            headers: {
-                'ngrok-skip-browser-warning': 'true'
-            }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            console.log(`✓ Task recovered: ${data.task_id}`);
-            return { success: true, taskId: data.task_id, data };
-        } else {
-            return { success: false, error: 'Task recovery failed' };
-        }
-    } catch (error) {
-        console.error('Task recovery failed:', error);
-        return { success: false, error: error.message };
-    }
-}
-
-/**
- * Poll task status until complete or failed
- */
-export async function pollTaskStatus(taskId, onProgress, onClarificationNeeded) {
+export async function pollConversation(conversationId, onProgress, onClarificationNeeded, onToolExecutionNeeded) {
     const pollInterval = 2000; // 2 seconds
     const maxPolls = 300; // 10 minutes
     let pollCount = 0;
@@ -125,7 +91,7 @@ export async function pollTaskStatus(taskId, onProgress, onClarificationNeeded) 
 
     while (pollCount < maxPolls) {
         try {
-            const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
+            const response = await fetch(`${API_BASE_URL}/chat/${conversationId}/poll`, {
                 headers: {
                     'ngrok-skip-browser-warning': 'true'
                 }
@@ -135,26 +101,27 @@ export async function pollTaskStatus(taskId, onProgress, onClarificationNeeded) 
                 throw new Error(`Status check failed: HTTP ${response.status}`);
             }
 
-            const status = await response.json();
+            const data = await response.json();
             consecutiveErrors = 0; // Reset on success
 
+            // Calculate elapsed time (estimate based on poll count)
+            const elapsed = pollCount * (pollInterval / 1000);
+            
             // Update progress
-            const elapsed = status.elapsed_seconds || 0;
-            if (onProgress) {
-                onProgress(status.progress, elapsed, status.status);
+            if (onProgress && data.message) {
+                onProgress(data.message.explanation || 'Processing...', elapsed, data.status);
             }
 
-            console.log(`📊 Poll ${pollCount + 1}: ${status.status} - ${status.progress} (${elapsed}s)`);
+            console.log(`📊 Poll ${pollCount + 1}: ${data.status} - ${data.message?.explanation || 'Processing...'}`);
 
-            // Check completion
-            if (status.status === 'complete') {
-                console.log(`✓ Task completed after ${elapsed}s`);
-                return { success: true, result: status.result };
+            // Handle different statuses
+            if (data.status === 'complete') {
+                console.log(`✓ Chat completed`);
+                return { success: true, result: data.message };
             }
 
-            // Check for clarification
-            if (status.status === 'needs_clarification') {
-                console.log(`⏸️ Task paused for clarification`);
+            if (data.status === 'needs_clarification') {
+                console.log(`⏸️ Chat paused for clarification`);
                 
                 if (!onClarificationNeeded) {
                     return { 
@@ -163,33 +130,69 @@ export async function pollTaskStatus(taskId, onProgress, onClarificationNeeded) 
                     };
                 }
 
-                const answer = await onClarificationNeeded(status);
+                // Extract question from askUser tool
+                const question = data.message?.toolCalls?.[0]?.params?.question || "I need more information to proceed.";
+                
+                const answer = await onClarificationNeeded(question, data.message);
                 
                 if (!answer) {
-                    return { success: false, error: 'Task cancelled by user' };
+                    return { success: false, error: 'Chat cancelled by user' };
                 }
 
                 // Submit answer and continue polling
-                const submitSuccess = await submitClarification(taskId, answer);
+                const submitSuccess = await respondToConversation(conversationId, answer);
                 if (!submitSuccess) {
                     return { success: false, error: 'Failed to submit clarification' };
                 }
 
                 // Continue polling
                 pollCount++;
-                await sleep(pollInterval);
+                await sleep(500); // Short delay before resuming
                 continue;
             }
 
-            // Check failure
-            if (status.status === 'failed') {
+            if (data.status === 'needs_tool_execution') {
+                console.log(`🔧 Frontend tools needed`);
+                
+                if (!onToolExecutionNeeded) {
+                    return { 
+                        success: false, 
+                        error: 'Tool execution needed but no handler provided' 
+                    };
+                }
+
+                // Execute tools and get results
+                const toolResults = await onToolExecutionNeeded(data.message.toolCalls || []);
+                
+                // Send results back to backend (if there were READ tools)
+                if (toolResults && toolResults.length > 0) {
+                    const submitSuccess = await respondToConversation(
+                        conversationId, 
+                        `Tool results:\n${JSON.stringify(toolResults, null, 2)}`
+                    );
+                    
+                    if (!submitSuccess) {
+                        return { success: false, error: 'Failed to submit tool results' };
+                    }
+                    
+                    // Continue polling for next response
+                    pollCount++;
+                    await sleep(500);
+                    continue;
+                } else {
+                    // No READ tools, just WRITE tools - task is complete
+                    return { success: true, result: data.message };
+                }
+            }
+
+            if (data.status === 'failed') {
                 return { 
                     success: false, 
-                    error: status.error || 'Task processing failed' 
+                    error: data.error || 'Chat processing failed' 
                 };
             }
 
-            // Wait before next poll
+            // Still processing (status: "processing")
             await sleep(pollInterval);
             pollCount++;
 
@@ -219,33 +222,33 @@ export async function pollTaskStatus(taskId, onProgress, onClarificationNeeded) 
 
     return { 
         success: false, 
-        error: 'Task timeout - exceeded maximum wait time (10 minutes)' 
+        error: 'Chat timeout - exceeded maximum wait time (10 minutes)' 
     };
 }
 
 /**
- * Submit clarification answer
+ * Respond to conversation (clarification answer OR tool results)
  */
-export async function submitClarification(taskId, answer) {
+export async function respondToConversation(conversationId, content) {
     try {
-        const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/respond`, {
+        const response = await fetch(`${API_BASE_URL}/chat/${conversationId}/respond`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'ngrok-skip-browser-warning': 'true'
             },
-            body: JSON.stringify({ answer })
+            body: JSON.stringify({ content })
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to submit clarification: HTTP ${response.status}`);
+            throw new Error(`Failed to respond: HTTP ${response.status}`);
         }
 
-        console.log('✓ Clarification submitted, resuming task...');
+        console.log('✓ Response submitted, resuming chat...');
         return true;
 
     } catch (error) {
-        console.error('Failed to submit clarification:', error);
+        console.error('Failed to respond:', error);
         return false;
     }
 }
@@ -256,4 +259,3 @@ export async function submitClarification(taskId, answer) {
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
-
