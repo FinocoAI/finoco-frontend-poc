@@ -108,7 +108,8 @@ async function captureSheetMetadata(context, sheet, activeSheetName) {
       tables: [],
       namedRanges: [],
       hasFormulas: false,
-      formulas: [],  // NEW: Array of formula objects with details
+      formulaRanges: [],  // Array of range addresses where formulas exist (compressed)
+      formulaCount: 0,    // Total count of formula cells
       hasCharts: false,
       hasPivotTables: false,
     };
@@ -170,51 +171,38 @@ async function captureSheetMetadata(context, sheet, activeSheetName) {
       });
     }
 
-    // Check for formulas and extract formula details
+    // Check for formulas and extract formula ranges (compressed format)
     if (usedRange) {
       try {
         const formulaCells = usedRange.getSpecialCells(Excel.SpecialCellType.formulas);
-        formulaCells.load("address, formulas, values, areas");
+        formulaCells.load("address, areas");
         await context.sync();
 
         sheetData.hasFormulas = true;
 
-        // Extract formula details from each area
+        // Extract formula ranges from each area (much more compact than individual cells)
         const areas = formulaCells.areas;
         areas.load("items");
         await context.sync();
 
-        console.log(`    📐 Found formulas, extracting details...`);
+        console.log(`    📐 Found formulas, extracting ranges...`);
 
+        let totalFormulaCount = 0;
         for (let i = 0; i < areas.items.length; i++) {
           const area = areas.items[i];
-          area.load("address, formulas, values, rowCount, columnCount");
+          area.load("address, rowCount, columnCount");
           await context.sync();
 
-          // Extract each formula from the area
-          for (let row = 0; row < area.rowCount; row++) {
-            for (let col = 0; col < area.columnCount; col++) {
-              const formula = area.formulas[row][col];
-              if (formula && formula.startsWith("=")) {
-                // Get the cell address for this specific cell
-                const cellRange = area.getCell(row, col);
-                cellRange.load("address");
-                await context.sync();
-
-                const formulaDetails = {
-                  cell: cellRange.address,
-                  formula: formula,
-                  value: area.values[row][col],
-                  dependencies: extractFormulaDependencies(formula),
-                };
-
-                sheetData.formulas.push(formulaDetails);
-              }
-            }
-          }
+          // Store the range address (e.g., "D2:D100" or "F5" for single cell)
+          const rangeAddress = area.address.split('!')[1] || area.address;
+          sheetData.formulaRanges.push(rangeAddress);
+          
+          // Count total formula cells in this area
+          totalFormulaCount += area.rowCount * area.columnCount;
         }
 
-        console.log(`    ✓ Extracted ${sheetData.formulas.length} formulas`);
+        sheetData.formulaCount = totalFormulaCount;
+        console.log(`    ✓ Found ${totalFormulaCount} formulas in ${sheetData.formulaRanges.length} range(s): ${sheetData.formulaRanges.join(', ')}`);
 
       } catch (error) {
         // No formulas found - this is expected behavior

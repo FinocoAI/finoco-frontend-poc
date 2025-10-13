@@ -180,8 +180,21 @@ export async function pollConversation(conversationId, onProgress, onClarificati
                     await sleep(500);
                     continue;
                 } else {
-                    // No READ tools, just WRITE tools - task is complete
-                    return { success: true, result: data.message };
+                    // No READ tools, just WRITE tools - acknowledge completion to backend
+                    console.log(`✓ Write-only tools completed, notifying backend...`);
+                    const submitSuccess = await respondToConversation(
+                        conversationId, 
+                        'Frontend tools executed successfully (write-only batch)'
+                    );
+                    
+                    if (!submitSuccess) {
+                        return { success: false, error: 'Failed to acknowledge tool execution' };
+                    }
+                    
+                    // Continue polling for backend's final response
+                    pollCount++;
+                    await sleep(500);
+                    continue;
                 }
             }
 

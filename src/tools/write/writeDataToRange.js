@@ -162,6 +162,15 @@ export async function execute(params) {
         targetRange.formulas = formulaArray;
       }
 
+      // Critical: Sync and allow Excel to calculate formulas BEFORE any formatting
+      await context.sync();
+      
+      // Force Excel to recalculate (ensures formulas are computed before formatting)
+      if (formulaCount > 0) {
+        context.workbook.application.calculate(Excel.CalculationType.recalculate);
+        await context.sync();
+      }
+
       // Auto-fit columns and rows
       targetRange.format.autofitColumns();
       targetRange.format.autofitRows();

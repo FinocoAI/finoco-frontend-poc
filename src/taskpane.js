@@ -35,6 +35,7 @@ import {
 // Import tool system
 import { executeTool } from './tools/executor.js';
 import { printToolRegistry } from './tools/registry.js';
+import { executeBatchedTools } from './tools/batchExecutor.js';
 
 // Import debug utilities
 import { setupDebugShortcuts } from './debug/debugUtils.js';
@@ -261,7 +262,21 @@ async function handleSendMessage() {
     } catch (error) {
         console.error('Error processing message:', error);
         removeTypingIndicator();
-        addMessageToChat('ai', `Sorry, I encountered an error: ${error.message}`);
+        
+        // Show user-friendly error message
+        let errorMessage = `Sorry, I encountered an error: ${error.message}`;
+        
+        // Provide specific guidance for connection errors
+        if (error.message.includes('Failed to initiate chat') || 
+            error.message.includes('Failed to fetch') ||
+            error.message.includes('Connection error')) {
+            errorMessage += '\n\n⚠️ Cannot reach backend server. Please check:\n' +
+                           '• Backend is running (python backend/main.py)\n' +
+                           '• Ngrok tunnel is active\n' +
+                           '• API_BASE_URL in apiClient.js matches your ngrok URL';
+        }
+        
+        addMessageToChat('ai', errorMessage);
     } finally {
         sendButton.disabled = false;
         input.focus();
@@ -271,6 +286,9 @@ async function handleSendMessage() {
 /**
  * Execute frontend tool calls returned by backend
  * Returns array of results for READ tools (to send back to backend)
+ * 
+ * USES BATCHED EXECUTION: All WRITE tools are executed in a single Excel.run() context
+ * for maximum efficiency and reliability. READ tools are executed sequentially.
  */
 async function executeFrontendTools(toolCalls) {
     if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) {
@@ -284,71 +302,89 @@ async function executeFrontendTools(toolCalls) {
                         'getCellPrecedents', 'getCellDependents', 'getRelatedData', 'getChartSourceData',
                         'searchValues', 'getNamedRangeData'];
     
+    // Separate READ and WRITE tools
+    const readTools = toolCalls.filter(tc => READ_TOOLS.includes(tc.tool));
+    const writeTools = toolCalls.filter(tc => !READ_TOOLS.includes(tc.tool));
+    
     const toolResults = [];
 
-    for (const toolCall of toolCalls) {
+    // PHASE 1: Execute WRITE tools in batched mode (single Excel.run)
+    if (writeTools.length > 0) {
+        console.log(`📦 Batching ${writeTools.length} WRITE tool(s) into single Excel.run()`);
+        
         try {
-            const toolResult = await executeTool(toolCall.tool, toolCall.params);
-
-            if (toolResult.success) {
-                // Check if this is a READ tool
-                const isReadTool = READ_TOOLS.includes(toolCall.tool);
+            const batchResults = await executeBatchedTools(writeTools);
+            
+            // Display results
+            for (let i = 0; i < batchResults.length; i++) {
+                const result = batchResults[i];
+                const toolCall = writeTools[i];
                 
-                if (isReadTool) {
-                    // Store result to send back to backend
-                    toolResults.push({
-                        tool: toolCall.tool,
-                        params: toolCall.params,
-                        result: toolResult.result,
-                        success: true
-                    });
-                    addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
-                } else {
+                if (result.success) {
                     // WRITE tool - show appropriate success message
                     if (toolCall.tool === 'writeDataToRange') {
-                        addMessageToChat('ai', `✓ Data written to ${toolResult.result.rangeAddress}`, true);
+                        addMessageToChat('ai', `✓ Data written to ${result.result.rangeAddress}`, true);
                     } else if (toolCall.tool === 'createChart') {
-                        addMessageToChat('ai', `✓ Chart "${toolResult.result.title}" created`, true);
+                        addMessageToChat('ai', `✓ Chart created`, true);
                     } else if (toolCall.tool === 'createTable') {
-                        addMessageToChat('ai', `✓ Table "${toolResult.result.tableName}" created`, true);
+                        addMessageToChat('ai', `✓ Table "${result.result.tableName}" created`, true);
                     } else if (toolCall.tool === 'applyFormula') {
-                        addMessageToChat('ai', `✓ Formula applied to ${toolResult.result.rangeAddress}`, true);
+                        addMessageToChat('ai', `✓ Formula applied to ${result.result.address}`, true);
                     } else if (toolCall.tool === 'formatRange') {
-                        addMessageToChat('ai', `✓ Formatting applied to ${toolResult.result.rangeAddress}`, true);
+                        addMessageToChat('ai', `✓ Formatting applied to ${result.result.address}`, true);
                     } else if (toolCall.tool === 'createNewSheet') {
-                        addMessageToChat('ai', `✓ Sheet "${toolResult.result.sheetName}" created`, true);
+                        addMessageToChat('ai', `✓ Sheet "${result.result.sheetName}" created`, true);
                     } else if (toolCall.tool === 'addCellNote') {
-                        addMessageToChat('ai', `✓ Citation added to ${toolResult.result.cellAddress}`, true);
+                        addMessageToChat('ai', `✓ Citation added to ${result.result.cellAddress}`, true);
                     } else if (toolCall.tool === 'insertRows' || toolCall.tool === 'deleteRows') {
                         addMessageToChat('ai', `✓ Rows modified successfully`, true);
                     } else {
                         addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
                     }
-                }
-            } else {
-                addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${toolResult.error}`, true);
-                if (READ_TOOLS.includes(toolCall.tool)) {
-                    toolResults.push({
-                        tool: toolCall.tool,
-                        params: toolCall.params,
-                        result: null,
-                        success: false,
-                        error: toolResult.error
-                    });
+                } else {
+                    addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${result.error}`, true);
                 }
             }
         } catch (error) {
-            console.error(`Tool execution error:`, error);
-            addMessageToChat('ai', `⚠️ Failed to execute ${toolCall.tool}`, true);
-            if (READ_TOOLS.includes(toolCall.tool)) {
+            console.error(`Batch execution error:`, error);
+            addMessageToChat('ai', `⚠️ Batch execution failed: ${error.message}`, true);
+        }
+    }
+
+    // PHASE 2: Execute READ tools sequentially (need results)
+    for (const toolCall of readTools) {
+        try {
+            const toolResult = await executeTool(toolCall.tool, toolCall.params);
+
+            if (toolResult.success) {
+                // Store result to send back to backend
+                toolResults.push({
+                    tool: toolCall.tool,
+                    params: toolCall.params,
+                    result: toolResult.result,
+                    success: true
+                });
+                addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
+            } else {
+                addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${toolResult.error}`, true);
                 toolResults.push({
                     tool: toolCall.tool,
                     params: toolCall.params,
                     result: null,
                     success: false,
-                    error: error.message
+                    error: toolResult.error
                 });
             }
+        } catch (error) {
+            console.error(`Tool execution error:`, error);
+            addMessageToChat('ai', `⚠️ Failed to execute ${toolCall.tool}`, true);
+            toolResults.push({
+                tool: toolCall.tool,
+                params: toolCall.params,
+                result: null,
+                success: false,
+                error: error.message
+            });
         }
     }
 
