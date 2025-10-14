@@ -185,15 +185,29 @@ function parseCellAddress(cellAddress) {
 
 /**
  * Batched createNewSheet
+ * 
+ * CRITICAL: This function MUST properly cache the worksheet object so that
+ * subsequent tools can reference it WITHOUT needing a sync.
+ * This enables true batching: createNewSheet + writeDataToRange + formatRange
+ * all in a single Excel.run() context.
  */
 async function batchCreateNewSheet(context, params, worksheets) {
   const { sheetName, position } = params;
   
-  const worksheet = position !== undefined
-    ? context.workbook.worksheets.add(sheetName, position)
-    : context.workbook.worksheets.add(sheetName);
+  // Create sheet (don't pass position to add() - set it separately)
+  // This matches the standalone tool's API usage
+  const worksheet = context.workbook.worksheets.add(sheetName);
   
+  // Set position separately if specified (matches standalone behavior)
+  if (position !== undefined) {
+    worksheet.position = position;
+  }
+  
+  // Load properties so the worksheet object is fully initialized
+  // This ensures it's usable by subsequent batched tools
   worksheet.load("name, position");
+  
+  // Cache the worksheet so other tools can use it without calling getItem()
   worksheets.set(sheetName, worksheet);
   
   return {
@@ -327,10 +341,13 @@ async function batchFormatRange(context, params, worksheets) {
   }
 
   const worksheet = getWorksheet(context, sheetName, worksheets);
-  const range = worksheet.getRange(address);
-  range.load("address");
 
-  applyFormatting(range, format);
+  // Support union addresses (e.g., "A1:A5,C1:C5"). Use getRanges for unions
+  const isRangeAreas = address.includes(',');
+  const target = isRangeAreas ? worksheet.getRanges(address) : worksheet.getRange(address);
+  target.load("address");
+
+  applyFormatting(target, format, isRangeAreas);
 
   return {
     sheetName: sheetName,
@@ -343,49 +360,60 @@ async function batchFormatRange(context, params, worksheets) {
 /**
  * Helper to apply formatting to a range (reusable)
  */
-function applyFormatting(range, format) {
+function applyFormatting(target, format, isRangeAreas = false) {
+  // Range and RangeAreas both expose a .format object. Only Range exposes .numberFormat directly.
+  const formatObj = target.format;
+
   // Number format
   if (format.numberFormat) {
-    range.numberFormat = format.numberFormat;
+    if (isRangeAreas) {
+      // RangeAreas - use format.numberFormat
+      formatObj.numberFormat = format.numberFormat;
+    } else {
+      // Range - use direct numberFormat property
+      target.numberFormat = format.numberFormat;
+    }
   }
 
   // Font
-  if (format.fontBold !== undefined) {
-    range.format.font.bold = format.fontBold;
-  }
-  if (format.fontItalic !== undefined) {
-    range.format.font.italic = format.fontItalic;
-  }
-  if (format.fontSize) {
-    range.format.font.size = format.fontSize;
-  }
-  if (format.fontColor) {
-    range.format.font.color = format.fontColor;
-  }
+  if (formatObj) {
+    if (format.fontBold !== undefined) {
+      formatObj.font.bold = format.fontBold;
+    }
+    if (format.fontItalic !== undefined) {
+      formatObj.font.italic = format.fontItalic;
+    }
+    if (format.fontSize) {
+      formatObj.font.size = format.fontSize;
+    }
+    if (format.fontColor) {
+      formatObj.font.color = format.fontColor;
+    }
 
-  // Fill
-  if (format.fillColor) {
-    range.format.fill.color = format.fillColor;
-  }
+    // Fill
+    if (format.fillColor) {
+      formatObj.fill.color = format.fillColor;
+    }
 
-  // Alignment
-  if (format.horizontalAlignment) {
-    range.format.horizontalAlignment = format.horizontalAlignment.toLowerCase();
-  }
-  if (format.verticalAlignment) {
-    range.format.verticalAlignment = format.verticalAlignment.toLowerCase();
-  }
+    // Alignment
+    if (format.horizontalAlignment) {
+      formatObj.horizontalAlignment = format.horizontalAlignment.toLowerCase();
+    }
+    if (format.verticalAlignment) {
+      formatObj.verticalAlignment = format.verticalAlignment.toLowerCase();
+    }
 
-  // Borders
-  if (format.borders) {
-    const borderTypes = ['EdgeTop', 'EdgeBottom', 'EdgeLeft', 'EdgeRight'];
-    borderTypes.forEach(type => {
-      const borderValue = format.borders[type.toLowerCase()];
-      if (borderValue) {
-        const borderStyle = typeof borderValue === 'boolean' ? 'Continuous' : borderValue;
-        range.format.borders.getItem(type).style = borderStyle;
-      }
-    });
+    // Borders
+    if (format.borders) {
+      const borderTypes = ['EdgeTop', 'EdgeBottom', 'EdgeLeft', 'EdgeRight'];
+      borderTypes.forEach(type => {
+        const borderValue = format.borders[type.toLowerCase()];
+        if (borderValue) {
+          const borderStyle = typeof borderValue === 'boolean' ? 'Continuous' : borderValue;
+          formatObj.borders.getItem(type).style = borderStyle;
+        }
+      });
+    }
   }
 }
 

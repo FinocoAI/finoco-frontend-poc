@@ -37,6 +37,10 @@ import { executeTool } from './tools/executor.js';
 import { printToolRegistry } from './tools/registry.js';
 import { executeBatchedTools } from './tools/batchExecutor.js';
 
+if (typeof window !== 'undefined') {
+    window.executeBatchedTools = executeBatchedTools;
+  }
+
 // Import debug utilities
 import { setupDebugShortcuts } from './debug/debugUtils.js';
 
