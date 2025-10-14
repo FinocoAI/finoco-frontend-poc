@@ -3,7 +3,7 @@
  * Handles all backend communication with conversation-based chat
  */
 
-export const API_BASE_URL = 'https://4d21a07c0ded.ngrok-free.app';
+export const API_BASE_URL = 'https://1011a38111ca.ngrok-free.app';
 
 /**
  * Check API health status
