@@ -387,7 +387,7 @@ async function executeFrontendTools(toolCalls) {
                         addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
                     }
                 } else {
-                    // Add error to results for backend
+                    // Add error to results for backend (with feedback if available)
                     toolResults.push({
                         tool: toolCall.tool,
                         params: toolCall.params,
@@ -395,10 +395,16 @@ async function executeFrontendTools(toolCalls) {
                         success: false,
                         error: result.error,
                         errorType: result.errorType,
-                        errorDetails: result.errorDetails
+                        errorDetails: result.errorDetails,
+                        userCancelled: result.userCancelled,
+                        feedback: result.feedback  // Include feedback for agent
                     });
                     
-                    addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${result.error}`, true);
+                    // Show user-friendly message (use feedback if available for user cancellations)
+                    const displayMessage = result.userCancelled 
+                        ? `❌ Operation cancelled by user` 
+                        : `⚠️ ${toolCall.tool} failed: ${result.error}`;
+                    addMessageToChat('ai', displayMessage, true);
                 }
             }
         } catch (error) {

@@ -5,6 +5,8 @@
  * This eliminates race conditions and ensures proper formula calculation before formatting
  */
 
+import { showOverwriteModal } from '../ui/overwriteModal.js';
+
 /**
  * Tool execution priority (ensures logical ordering)
  * Lower numbers execute first
@@ -67,14 +69,16 @@ export async function executeBatchedTools(toolCalls) {
             needsRecalculation = true;
           }
         } catch (error) {
-          console.error(`  ❌ ${tool} failed:`, error.message);
+          console.error(`  ❌ ${tool} failed:`, error.message || error);
           results.push({
             success: false,
             tool: tool,
             params: params,
             error: error.message || String(error),
             errorType: error.name || 'Error',
-            errorDetails: error.stack ? error.stack.split('\n')[0] : undefined
+            errorDetails: error.stack ? error.stack.split('\n')[0] : undefined,
+            userCancelled: error.userCancelled || false,
+            feedback: error.feedback || undefined  // Include feedback for agent if available
           });
           // Continue with other tools instead of failing entire batch
         }
@@ -261,7 +265,63 @@ async function batchWriteDataToRange(context, params, worksheets) {
     numCols
   );
 
-  targetRange.load("address");
+  targetRange.load("address, values");
+  
+  // Sync to load values for overwrite protection check
+  await context.sync();
+
+  // =========================================================================
+  // OVERWRITE PROTECTION: Check for existing data and request user approval
+  // =========================================================================
+  const existingValues = targetRange.values;
+  let cellsWithData = [];
+  let hasExistingData = false;
+
+  // Scan for non-empty cells
+  for (let i = 0; i < numRows; i++) {
+    for (let j = 0; j < numCols; j++) {
+      const cellValue = existingValues[i][j];
+      if (cellValue !== "" && cellValue !== null && cellValue !== undefined) {
+        hasExistingData = true;
+        // Calculate cell address (e.g., A1, B2)
+        const colLetter = String.fromCharCode(65 + startCol + j);
+        const rowNum = startRow + i + 1;
+        cellsWithData.push(`${colLetter}${rowNum}`);
+      }
+    }
+  }
+
+  // If existing data found, request user approval
+  if (hasExistingData && overwrite !== false) {
+    console.log(`⚠️ Overwrite protection: ${cellsWithData.length} cells contain data`);
+    
+    // Show approval modal (this is async and blocks execution)
+    const userApproved = await showOverwriteModal(
+      targetRange.address,
+      cellsWithData.length,
+      cellsWithData
+    );
+
+    if (!userApproved) {
+      // User cancelled - throw error with feedback for agent
+      console.log('❌ User denied overwrite operation');
+      throw {
+        tool: "writeDataToRange",
+        userCancelled: true,
+        sheetName: sheetName,
+        rangeAddress: targetRange.address,
+        cellsAffected: cellsWithData.length,
+        message: `User cancelled: ${cellsWithData.length} cells would be overwritten in ${targetRange.address}`,
+        feedback: `The user declined to overwrite ${cellsWithData.length} existing cells in range ${targetRange.address}. The data was NOT written. Consider asking for a different location or approach.`
+      };
+    }
+
+    console.log('✅ User approved overwrite operation');
+  }
+
+  // =========================================================================
+  // Proceed with write operation
+  // =========================================================================
 
   // Separate data into values and formulas
   const formulaArray = [];

@@ -138,6 +138,25 @@
                 </div>
             </div>
         </div>
+
+        <!-- Overwrite Approval Modal -->
+        <div id="overwriteModal" class="clarification-modal hidden">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="modal-icon" style="background: #f59e0b;">⚠️</div>
+                    <h3>Confirm Overwrite</h3>
+                </div>
+                <div class="modal-body">
+                    <p id="overwriteMessage" class="clarification-question"></p>
+                    <div id="overwriteDetails" class="overwrite-details" style="margin-top: 12px; padding: 12px; background: #f3f4f6; border-radius: 6px; font-size: 13px; color: #374151;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button id="overwriteApprove" class="btn-primary" style="background: #f59e0b;">Overwrite Data</button>
+                    <button id="overwriteCancel" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Main script with ES6 module support -->
