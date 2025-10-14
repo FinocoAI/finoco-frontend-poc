@@ -28,6 +28,7 @@ export async function checkAPIHealth() {
 export async function initiateChat(message, queryPayload, onRetry) {
     const maxRetries = 3;
     let retryCount = 0;
+    const idempotencyKey = crypto.randomUUID(); // Generate a unique key for this operation
     
     // DEBUG: Add timestamp and stack trace to track duplicate calls
     const callTimestamp = new Date().toISOString();
@@ -38,12 +39,14 @@ export async function initiateChat(message, queryPayload, onRetry) {
     while (retryCount < maxRetries) {
         try {
             console.log(`📤 Initiating chat (attempt ${retryCount + 1}/${maxRetries})...`);
+            console.log(`   Idempotency Key: ${idempotencyKey}`);
 
             const response = await fetch(`${API_BASE_URL}/chat/initiate`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': 'true'
+                    'ngrok-skip-browser-warning': 'true',
+                    'Idempotency-Key': idempotencyKey // Send the key in the headers
                 },
                 body: JSON.stringify({
                     query: message,
