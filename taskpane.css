@@ -538,6 +538,8 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    /* Allow clicks to pass through to Excel, except on modal content */
+    pointer-events: none;
 }
 
 .clarification-modal.hidden {
@@ -550,8 +552,10 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, 0.3);
     backdrop-filter: blur(2px);
+    /* Allow clicks to pass through to Excel */
+    pointer-events: none;
 }
 
 .modal-content {
@@ -565,6 +569,8 @@ body {
     display: flex;
     flex-direction: column;
     animation: modalSlideIn 0.3s ease-out;
+    /* Re-enable pointer events on the modal itself */
+    pointer-events: auto;
 }
 
 @keyframes modalSlideIn {

@@ -172,21 +172,43 @@ export async function updateExcelContext() {
 }
 
 /**
+ * Set up selection change listener on the current active sheet
+ * This needs to be called whenever the sheet changes
+ */
+async function setupSelectionListener() {
+    try {
+        await Excel.run(async (context) => {
+            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            sheet.load('name');
+            await context.sync();
+
+            // Listen to selection changes on this sheet
+            sheet.onSelectionChanged.add(async () => {
+                await updateExcelContext();
+            });
+
+            await context.sync();
+            console.log(`✅ Selection listener set up on: ${sheet.name}`);
+        });
+    } catch (error) {
+        console.error('Error setting up selection listener:', error);
+    }
+}
+
+/**
  * Set up Excel event listeners
  */
 export async function setupExcelEventListeners() {
     try {
         await Excel.run(async (context) => {
-            const sheet = context.workbook.worksheets.getActiveWorksheet();
+            // Set up initial selection listener on active sheet
+            await setupSelectionListener();
 
-            // Listen to selection changes - lightweight UI update only
-            sheet.onSelectionChanged.add(async () => {
+            // Listen to sheet activation and re-register selection listener
+            context.workbook.worksheets.onActivated.add(async (event) => {
                 await updateExcelContext();
-            });
-
-            // Listen to sheet activation - lightweight UI update only
-            context.workbook.worksheets.onActivated.add(async () => {
-                await updateExcelContext();
+                // Re-register selection listener on the new sheet
+                await setupSelectionListener();
             });
 
             await context.sync();

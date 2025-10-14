@@ -28,6 +28,12 @@ export async function checkAPIHealth() {
 export async function initiateChat(message, queryPayload, onRetry) {
     const maxRetries = 3;
     let retryCount = 0;
+    
+    // DEBUG: Add timestamp and stack trace to track duplicate calls
+    const callTimestamp = new Date().toISOString();
+    const callStack = new Error().stack;
+    console.log(`🔍 DEBUG: initiateChat called at ${callTimestamp}`);
+    console.log(`🔍 DEBUG: Call stack:`, callStack);
 
     while (retryCount < maxRetries) {
         try {

@@ -47,9 +47,22 @@ import { setupDebugShortcuts } from './debug/debugUtils.js';
 // Import helpers
 import { handleInputResize, handleInputKeydown } from './utils/helpers.js';
 
+// Track if already initialized to prevent duplicate initialization
+let isInitialized = false;
+
 // Initialize Office addins
 Office.onReady((info) => {
     if (info.host === Office.HostType.Excel) {
+        const timestamp = new Date().toISOString();
+        console.log(`🔍 DEBUG: Office.onReady fired at ${timestamp}`);
+        
+        if (isInitialized) {
+            console.warn(`⚠️ DUPLICATE INITIALIZATION DETECTED! Office.onReady called again at ${timestamp}`);
+            console.warn(`This indicates Excel is reloading the task pane!`);
+            return; // Prevent re-initialization
+        }
+        
+        isInitialized = true;
         console.log('Office.js initialized');
         initializeApp();
     }
@@ -59,6 +72,9 @@ Office.onReady((info) => {
  * Initialize the application
  */
 async function initializeApp() {
+    const timestamp = new Date().toISOString();
+    console.log(`🔍 DEBUG: initializeApp called at ${timestamp}`);
+    
     // Set up event listeners
     document.getElementById('sendButton').addEventListener('click', handleSendMessage);
     document.getElementById('refreshButton')?.addEventListener('click', handleRefreshContext);
@@ -148,18 +164,35 @@ function handleUploadClick() {
  * Handle send message
  */
 async function handleSendMessage() {
+    const sendButton = document.getElementById('sendButton');
+    
+    // DEBUG: Track handleSendMessage calls
+    const timestamp = new Date().toISOString();
+    const callStack = new Error().stack;
+    console.log(`🔍 DEBUG: handleSendMessage called at ${timestamp}`);
+    console.log(`🔍 DEBUG: Button disabled state: ${sendButton?.disabled}`);
+    console.log(`🔍 DEBUG: Call stack:`, callStack);
+    
+    // GUARD: Prevent duplicate execution (race condition fix)
+    if (sendButton.disabled) {
+        console.log('⏸️ Already processing a message, ignoring duplicate call');
+        return;
+    }
+    
+    // IMMEDIATELY disable to prevent race condition
+    sendButton.disabled = true;
+    
     const input = document.getElementById('userInput');
     const message = input.value.trim();
 
-    if (!message) return;
+    if (!message) {
+        sendButton.disabled = false;  // Re-enable if no message
+        return;
+    }
 
     // Clear input
     input.value = '';
     input.style.height = 'auto';
-
-    // Disable send button
-    const sendButton = document.getElementById('sendButton');
-    sendButton.disabled = true;
 
     // Hide welcome screen on first message
     const welcomeScreen = document.getElementById('welcomeScreen');

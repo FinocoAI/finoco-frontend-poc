@@ -14,8 +14,8 @@ export function showClarificationModal(question) {
         const submitButton = document.getElementById('clarificationSubmit');
         const cancelButton = document.getElementById('clarificationCancel');
 
-        // Set question text
-        questionElement.textContent = question;
+        // Set question text with helpful instruction
+        questionElement.innerHTML = `${question}<br><br><small style="color: #6b7280; font-style: italic;">💡 Tip: Select cells in Excel first, then type your answer here. The selection will be captured when you submit.</small>`;
         inputElement.value = '';
 
         // Show modal
