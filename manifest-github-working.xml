@@ -17,7 +17,7 @@
 
   <AppDomains>
     <AppDomain>https://finocoai.github.io/finoco-frontend-poc</AppDomain>
-    <AppDomain>http://finoco-dev-lb-1271513380.us-east-1.elb.amazonaws.com</AppDomain>
+    <AppDomain>https://finoco-dev-lb-1271513380.us-east-1.elb.amazonaws.com</AppDomain>
   </AppDomains>
 
   <Hosts>
