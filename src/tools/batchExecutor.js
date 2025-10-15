@@ -51,6 +51,25 @@ export async function executeBatchedTools(toolCalls) {
     let needsRecalculation = false;
 
     try {
+      // Proactively create any missing sheets mentioned in the tool calls
+      const toolSheetNames = [...new Set(toolCalls.map(call => call.params.sheetName).filter(Boolean))];
+      if (toolSheetNames.length > 0) {
+        console.log(`  🔍 Ensuring sheets exist: ${toolSheetNames.join(', ')}`);
+        const existingWorksheets = context.workbook.worksheets;
+        existingWorksheets.load("items/name");
+        await context.sync();
+        
+        const existingSheetNames = new Set(existingWorksheets.items.map(sheet => sheet.name));
+        
+        for (const sheetName of toolSheetNames) {
+          if (!existingSheetNames.has(sheetName)) {
+            console.log(`    -> Creating new sheet: ${sheetName}`);
+            const worksheet = context.workbook.worksheets.add(sheetName);
+            worksheets.set(sheetName, worksheet); // Cache the new sheet
+          }
+        }
+      }
+
       // PHASE 1: Execute all tool operations (no sync yet)
       for (let i = 0; i < sortedToolCalls.length; i++) {
         const { tool, params } = sortedToolCalls[i];
@@ -198,6 +217,22 @@ function parseCellAddress(cellAddress) {
 async function batchCreateNewSheet(context, params, worksheets) {
   const { sheetName, position } = params;
   
+  // If sheet was already created proactively, just retrieve it and set position
+  if (worksheets.has(sheetName)) {
+    console.log(`  -> Sheet "${sheetName}" was already created proactively.`);
+    const worksheet = worksheets.get(sheetName);
+    if (position !== undefined) {
+      worksheet.position = position;
+    }
+    worksheet.load("name, position");
+    return {
+      sheetName: sheetName,
+      position: position,
+      created: true,
+      message: "Sheet was created proactively at the start of the batch."
+    };
+  }
+
   // Create sheet (don't pass position to add() - set it separately)
   // This matches the standalone tool's API usage
   const worksheet = context.workbook.worksheets.add(sheetName);
