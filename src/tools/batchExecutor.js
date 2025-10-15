@@ -21,6 +21,7 @@ const TOOL_PRIORITY = {
   addCellNote: 7,
   insertRows: 8,
   deleteRows: 9,
+  displayDependencyGraph: 10, // Display tools run last
 };
 
 /**
@@ -163,6 +164,9 @@ async function executeBatchedTool(context, tool, params, worksheets) {
     case 'insertRows':
     case 'deleteRows':
       return await batchModifyRows(context, tool, params, worksheets);
+    
+    case 'displayDependencyGraph':
+      return await batchDisplayDependencyGraph(context, params);
     
     default:
       throw new Error(`Batched execution not implemented for tool: ${tool}`);
@@ -677,5 +681,22 @@ async function batchModifyRows(context, tool, params, worksheets) {
     count: count,
     modified: true
   };
+}
+
+/**
+ * Batched displayDependencyGraph - UI tool that shows modal
+ * 
+ * Note: This is a UI tool that doesn't modify Excel data, so it doesn't
+ * actually need to do anything in the batched context. We import and call
+ * the standalone execute function directly.
+ */
+async function batchDisplayDependencyGraph(context, params) {
+  // Import the standalone execute function dynamically
+  const { execute } = await import('./write/displayDependencyGraph.js');
+  
+  // Call the standalone function (it handles all UI operations)
+  const result = await execute(params);
+  
+  return result;
 }
 

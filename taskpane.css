@@ -693,3 +693,312 @@ body {
 .hidden {
     display: none !important;
 }
+
+/* Dependency Graph Modal */
+.dependency-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.dependency-modal.hidden {
+    display: none;
+}
+
+.dependency-modal .modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(3px);
+    pointer-events: auto;
+}
+
+.dependency-modal-content {
+    position: relative;
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    width: 92%;
+    max-width: 500px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    animation: modalSlideIn 0.3s ease-out;
+    pointer-events: auto;
+    overflow: hidden;
+}
+
+.dependency-close-btn {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.1);
+    border: none;
+    border-radius: 8px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.dependency-close-btn:hover {
+    background: rgba(0, 0, 0, 0.2);
+    transform: scale(1.1);
+}
+
+.dependency-close-btn svg {
+    width: 18px;
+    height: 18px;
+    color: var(--text-primary);
+}
+
+.dependency-modal-body {
+    overflow-y: auto;
+    max-height: 85vh;
+}
+
+/* Dependency Header */
+.dependency-header {
+    padding: 24px 24px 20px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, #4169E1 0%, #3151C1 100%);
+}
+
+.dependency-title {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.dependency-icon {
+    font-size: 32px;
+    line-height: 1;
+}
+
+.dependency-title h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: white;
+    margin-bottom: 6px;
+    padding-right: 32px;
+}
+
+.dependency-subtitle {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.9);
+    margin: 0;
+    line-height: 1.4;
+}
+
+/* Dependency Content */
+.dependency-content {
+    padding: 20px;
+}
+
+.dependency-section {
+    margin-bottom: 24px;
+}
+
+.dependency-section:last-child {
+    margin-bottom: 0;
+}
+
+.section-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.section-hint {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    text-transform: none;
+    letter-spacing: 0;
+    opacity: 0.7;
+}
+
+.nodes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Trace Node Cards */
+.trace-node {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: all 0.2s;
+}
+
+.trace-node:hover {
+    background: #f5f5f5;
+    border-color: var(--primary-color);
+    box-shadow: 0 2px 8px rgba(65, 105, 225, 0.1);
+}
+
+.trace-node.center-node {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+    border-color: #f59e0b;
+    border-width: 2px;
+}
+
+.node-icon {
+    font-size: 24px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.node-arrow {
+    font-size: 18px;
+    color: var(--primary-color);
+    flex-shrink: 0;
+}
+
+.node-details {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.node-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.node-address {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-family: 'Courier New', monospace;
+}
+
+.node-sheet-badge {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--primary-color);
+    background: rgba(65, 105, 225, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.level-badge {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--border);
+    padding: 2px 5px;
+    border-radius: 3px;
+}
+
+.node-formula {
+    font-size: 11px;
+    color: var(--text-secondary);
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.node-value {
+    font-size: 12px;
+    color: var(--primary-color);
+    font-weight: 500;
+}
+
+.node-nav-btn {
+    background: var(--primary-color);
+    border: none;
+    border-radius: 8px;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.node-nav-btn:hover {
+    background: var(--primary-hover);
+    transform: translateX(2px);
+}
+
+.node-nav-btn svg {
+    width: 16px;
+    height: 16px;
+    color: white;
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-secondary);
+}
+
+.empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.empty-state p {
+    margin: 0 0 8px;
+    font-size: 14px;
+}
+
+.empty-hint {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+/* Scrollbar for dependency modal */
+.dependency-modal-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.dependency-modal-body::-webkit-scrollbar-track {
+    background: var(--surface);
+}
+
+.dependency-modal-body::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+}
+
+.dependency-modal-body::-webkit-scrollbar-thumb:hover {
+    background: var(--text-secondary);
+}

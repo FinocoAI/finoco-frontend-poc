@@ -337,7 +337,7 @@ async function executeFrontendTools(toolCalls) {
     // List of READ tools that require continuation
     const READ_TOOLS = ['getFullRangeData', 'getColumnData', 'getTableData', 'getFormulasInRange', 
                         'getCellPrecedents', 'getCellDependents', 'getRelatedData', 'getChartSourceData',
-                        'searchValues', 'getNamedRangeData'];
+                        'searchValues', 'getNamedRangeData', 'traceDependencyGraph'];
     
     // Separate READ and WRITE tools
     const readTools = toolCalls.filter(tc => READ_TOOLS.includes(tc.tool));
@@ -383,6 +383,8 @@ async function executeFrontendTools(toolCalls) {
                         addMessageToChat('ai', `✓ Citation added to ${result.result.cellAddress}`, true);
                     } else if (toolCall.tool === 'insertRows' || toolCall.tool === 'deleteRows') {
                         addMessageToChat('ai', `✓ Rows modified successfully`, true);
+                    } else if (toolCall.tool === 'displayDependencyGraph') {
+                        addMessageToChat('ai', `✓ Dependency graph displayed`, true);
                     } else {
                         addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
                     }

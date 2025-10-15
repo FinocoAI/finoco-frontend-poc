@@ -20,6 +20,7 @@ import * as getCellDependents from './read/getCellDependents.js';
 import * as getCellPrecedents from './read/getCellPrecedents.js';
 import * as getRelatedData from './read/getRelatedData.js';
 import * as getChartSourceData from './read/getChartSourceData.js';
+import * as traceDependencyGraph from './read/traceDependencyGraph.js';
 
 // Import write tools
 import * as writeDataToRange from './write/writeDataToRange.js';
@@ -31,6 +32,7 @@ import * as applyFormula from './write/applyFormula.js';
 import * as formatRange from './write/formatRange.js';
 import * as createNewSheet from './write/createNewSheet.js';
 import * as addCellNote from './write/addCellNote.js';
+import * as displayDependencyGraph from './write/displayDependencyGraph.js';
 
 /**
  * Tool Registry
@@ -53,6 +55,7 @@ export const toolRegistry = {
     getFormulasInRange,
     getCellDependents,
     getCellPrecedents,
+    traceDependencyGraph,
 
     // Relationships and lookups
     getRelatedData,
@@ -81,6 +84,9 @@ export const toolRegistry = {
 
     // Annotations and citations
     addCellNote,
+
+    // Visualization
+    displayDependencyGraph,
   }
 };
 
