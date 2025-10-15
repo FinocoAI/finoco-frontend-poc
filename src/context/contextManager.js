@@ -6,6 +6,7 @@
 import { captureInitialContext } from '../contextCapture.js';
 import { captureUserSelection } from '../selectionCapture.js';
 import { updateContextDisplay } from '../ui/contextUI.js';
+import { updateTraceButtonVisibility } from '../taskpane.js';
 
 // Legacy context structure (for UI display)
 export let excelContext = {
@@ -185,6 +186,7 @@ async function setupSelectionListener() {
             // Listen to selection changes on this sheet
             sheet.onSelectionChanged.add(async () => {
                 await updateExcelContext();
+                await updateTraceButtonVisibility(); // Update trace button visibility
             });
 
             await context.sync();

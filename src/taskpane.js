@@ -87,6 +87,7 @@ async function initializeApp() {
     document.getElementById('historyButton')?.addEventListener('click', handleHistoryClick);
     document.getElementById('menuButton')?.addEventListener('click', handleMenuClick);
     document.getElementById('uploadButton')?.addEventListener('click', handleUploadClick);
+    document.getElementById('traceDependenciesBtn')?.addEventListener('click', handleTraceDependencies);
 
     // Set up suggestion click listeners
     const suggestionItems = document.querySelectorAll('.suggestion-item');
@@ -102,6 +103,9 @@ async function initializeApp() {
 
     // Load initial context (lightweight UI context only)
     await updateExcelContext();
+    
+    // Update trace button visibility on initial load
+    await updateTraceButtonVisibility();
 
     // Check backend connection
     await checkAPIConnection();
@@ -122,6 +126,114 @@ async function initializeApp() {
 async function handleRefreshContext() {
     console.log('Manual refresh triggered - updating UI context');
     await updateExcelContext();
+    await updateTraceButtonVisibility(); // Update trace button visibility on refresh
+}
+
+/**
+ * Update trace button visibility based on selection
+ * Shows button only if a single cell is selected
+ */
+export async function updateTraceButtonVisibility() {
+    const traceBtn = document.getElementById('traceDependenciesBtn');
+    if (!traceBtn) return;
+
+    try {
+        await Excel.run(async (context) => {
+            const selectedRanges = context.workbook.getSelectedRanges();
+            selectedRanges.load('areaCount');
+            await context.sync();
+
+            // Only show for single area selections
+            if (selectedRanges.areaCount === 1) {
+                const areas = selectedRanges.areas;
+                areas.load('items');
+                await context.sync();
+
+                const singleArea = areas.items[0];
+                singleArea.load('rowCount, columnCount');
+                await context.sync();
+
+                // Show button only for single cell (1x1 selection)
+                if (singleArea.rowCount === 1 && singleArea.columnCount === 1) {
+                    traceBtn.classList.remove('hidden');
+                } else {
+                    traceBtn.classList.add('hidden');
+                }
+            } else {
+                traceBtn.classList.add('hidden');
+            }
+        });
+    } catch (error) {
+        console.error('Error updating trace button visibility:', error);
+        traceBtn.classList.add('hidden');
+    }
+}
+
+/**
+ * Handle trace dependencies button click
+ * Directly executes trace tools without going through LLM
+ */
+async function handleTraceDependencies() {
+    console.log('📊 Trace Dependencies button clicked');
+    
+    const traceBtn = document.getElementById('traceDependenciesBtn');
+    
+    try {
+        // Disable button during execution
+        traceBtn.disabled = true;
+        traceBtn.textContent = '⏳ Tracing...';
+
+        await Excel.run(async (context) => {
+            const range = context.workbook.getSelectedRange();
+            const sheet = range.worksheet;
+            
+            range.load('address');
+            sheet.load('name');
+            await context.sync();
+            
+            // Extract cell address without sheet name
+            let cellAddress = range.address;
+            if (cellAddress.includes('!')) {
+                cellAddress = cellAddress.split('!')[1];
+            }
+            const sheetName = sheet.name;
+            
+            console.log(`📊 Tracing dependencies for ${sheetName}!${cellAddress}`);
+            
+            // Import and execute traceDependencyGraph tool
+            const { execute: traceExecute } = await import('./tools/read/traceDependencyGraph.js');
+            const graphData = await traceExecute({
+                sheetName: sheetName,
+                address: cellAddress,  // Note: parameter name is 'address', not 'cellAddress'
+                maxDepth: 3
+            });
+            
+            console.log('✅ Dependency graph data retrieved:', graphData);
+            
+            // Import and execute displayDependencyGraph tool
+            const { execute: displayExecute } = await import('./tools/write/displayDependencyGraph.js');
+            await displayExecute({
+                graphData: graphData,
+                displayOptions: {
+                    title: `Dependencies for ${sheetName}!${cellAddress}`,
+                    highlightCritical: true
+                }
+            });
+            
+            console.log('✅ Dependency graph displayed successfully');
+            
+            // Show success message in chat
+            addMessageToChat('ai', `✓ Dependency graph displayed for ${sheetName}!${cellAddress}`, true);
+        });
+        
+    } catch (error) {
+        console.error('❌ Failed to trace dependencies:', error);
+        addMessageToChat('ai', `⚠️ Failed to trace dependencies: ${error.message}`, true);
+    } finally {
+        // Re-enable button
+        traceBtn.disabled = false;
+        traceBtn.textContent = '📊 Trace';
+    }
 }
 
 /**
