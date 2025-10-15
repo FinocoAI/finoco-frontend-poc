@@ -5,7 +5,7 @@
  * This eliminates race conditions and ensures proper formula calculation before formatting
  */
 
-import { showOverwriteModal } from '../ui/overwriteModal.js';
+import { showEditPreviewModal } from '../ui/editPreviewModal.js';
 
 /**
  * Tool execution priority (ensures logical ordering)
@@ -211,6 +211,18 @@ function parseCellAddress(cellAddress) {
 }
 
 /**
+ * Convert column index to letter (0 -> A, 25 -> Z, 26 -> AA)
+ */
+function getColumnLetterFromIndex(index) {
+  let letter = '';
+  while (index >= 0) {
+    letter = String.fromCharCode((index % 26) + 65) + letter;
+    index = Math.floor(index / 26) - 1;
+  }
+  return letter;
+}
+
+/**
  * Batched createNewSheet
  * 
  * CRITICAL: This function MUST properly cache the worksheet object so that
@@ -306,11 +318,11 @@ async function batchWriteDataToRange(context, params, worksheets) {
 
   targetRange.load("address, values");
   
-  // Sync to load values for overwrite protection check
+  // Sync to load values for edit preview
   await context.sync();
 
   // =========================================================================
-  // OVERWRITE PROTECTION: Check for existing data and request user approval
+  // EDIT PREVIEW & APPROVAL: Show preview of changes and request user approval
   // =========================================================================
   const existingValues = targetRange.values;
   let cellsWithData = [];
@@ -323,39 +335,50 @@ async function batchWriteDataToRange(context, params, worksheets) {
       if (cellValue !== "" && cellValue !== null && cellValue !== undefined) {
         hasExistingData = true;
         // Calculate cell address (e.g., A1, B2)
-        const colLetter = String.fromCharCode(65 + startCol + j);
+        const colLetter = getColumnLetterFromIndex(startCol + j);
         const rowNum = startRow + i + 1;
         cellsWithData.push(`${colLetter}${rowNum}`);
       }
     }
   }
 
-  // If existing data found, request user approval
-  if (hasExistingData && overwrite !== false) {
-    console.log(`⚠️ Overwrite protection: ${cellsWithData.length} cells contain data`);
+  // ONLY show preview when overwriting existing data
+  if (hasExistingData) {
+    console.log(`⚠️ Overwrite protection: ${cellsWithData.length} cells contain existing data`);
     
-    // Show approval modal (this is async and blocks execution)
-    const userApproved = await showOverwriteModal(
-      targetRange.address,
-      cellsWithData.length,
-      cellsWithData
-    );
+    // Build preview data
+    const previewData = {
+      operation: 'writeDataToRange',
+      sheetName: sheetName,
+      rangeAddress: targetRange.address,
+      newData: normalizedData,
+      existingData: existingValues,
+      rowCount: numRows,
+      colCount: numCols,
+      hasExistingData: true,
+      affectedCells: cellsWithData
+    };
 
-    if (!userApproved) {
-      // User cancelled - throw error with feedback for agent
-      console.log('❌ User denied overwrite operation');
+    // Show approval modal (this is async and blocks execution)
+    const result = await showEditPreviewModal(previewData);
+
+    if (!result.approved) {
+      // User rejected - throw error with feedback for agent
+      console.log('❌ User rejected overwrite operation');
       throw {
         tool: "writeDataToRange",
         userCancelled: true,
         sheetName: sheetName,
         rangeAddress: targetRange.address,
         cellsAffected: cellsWithData.length,
-        message: `User cancelled: ${cellsWithData.length} cells would be overwritten in ${targetRange.address}`,
-        feedback: `The user declined to overwrite ${cellsWithData.length} existing cells in range ${targetRange.address}. The data was NOT written. Consider asking for a different location or approach.`
+        message: `User rejected overwrite operation for ${targetRange.address}`,
+        feedback: result.feedback
       };
     }
 
     console.log('✅ User approved overwrite operation');
+  } else {
+    console.log('✅ Writing to empty cells - no approval needed');
   }
 
   // =========================================================================
@@ -530,10 +553,83 @@ async function batchApplyFormula(context, params, worksheets) {
   const worksheet = getWorksheet(context, sheetName, worksheets);
   const range = worksheet.getRange(address);
   
-  range.load("address, rowCount, columnCount");
+  range.load("address, rowCount, columnCount, values");
   
-  // Micro-sync: Only for this tool, unavoidable
+  // Micro-sync: Load range dimensions and existing values
   await context.sync();
+
+  // =========================================================================
+  // EDIT PREVIEW & APPROVAL: Show preview of formula application
+  // =========================================================================
+  const existingValues = range.values;
+  const numRows = range.rowCount;
+  const numCols = range.columnCount;
+  
+  // Check if any cells have existing data
+  let hasExistingData = false;
+  for (let i = 0; i < numRows; i++) {
+    for (let j = 0; j < numCols; j++) {
+      const cellValue = existingValues[i][j];
+      if (cellValue !== "" && cellValue !== null && cellValue !== undefined) {
+        hasExistingData = true;
+        break;
+      }
+    }
+    if (hasExistingData) break;
+  }
+
+  // Build new data array with formulas
+  const newData = [];
+  for (let i = 0; i < numRows; i++) {
+    const row = [];
+    for (let j = 0; j < numCols; j++) {
+      row.push(cleanFormula);
+    }
+    newData.push(row);
+  }
+
+  // ONLY show preview when overwriting existing data
+  if (hasExistingData) {
+    console.log(`⚠️ Overwrite protection: applying formula will overwrite existing data`);
+    
+    // Build preview data
+    const previewData = {
+      operation: 'applyFormula',
+      sheetName: sheetName,
+      rangeAddress: range.address,
+      newData: newData,
+      existingData: existingValues,
+      rowCount: numRows,
+      colCount: numCols,
+      hasExistingData: true,
+      affectedCells: []
+    };
+
+    // Show approval modal (this is async and blocks execution)
+    const result = await showEditPreviewModal(previewData);
+
+    if (!result.approved) {
+      // User rejected - throw error with feedback for agent
+      console.log('❌ User rejected formula overwrite');
+      throw {
+        tool: "applyFormula",
+        userCancelled: true,
+        sheetName: sheetName,
+        rangeAddress: range.address,
+        cellsAffected: numRows * numCols,
+        message: `User rejected formula application for ${range.address}`,
+        feedback: result.feedback
+      };
+    }
+
+    console.log('✅ User approved formula overwrite');
+  } else {
+    console.log('✅ Applying formula to empty cells - no approval needed');
+  }
+
+  // =========================================================================
+  // Proceed with formula application
+  // =========================================================================
 
   // Build formula array based on range dimensions
   if (range.rowCount === 1 && range.columnCount === 1) {

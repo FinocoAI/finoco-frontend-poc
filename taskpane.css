@@ -1083,3 +1083,189 @@ body {
 .dependency-modal-body::-webkit-scrollbar-thumb:hover {
     background: var(--text-secondary);
 }
+
+/* ============================================
+   Edit Preview Modal Styles
+   ============================================ */
+
+.edit-preview-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.edit-preview-modal.active {
+    opacity: 1;
+}
+
+.edit-preview-content {
+    background: var(--surface);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    width: 95%;
+    max-width: 900px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transform: scale(0.95);
+    transition: transform 0.2s ease;
+}
+
+.edit-preview-modal.active .edit-preview-content {
+    transform: scale(1);
+}
+
+/* Preview Table Styles */
+.edit-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: white;
+}
+
+.edit-preview-table th,
+.edit-preview-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border: 1px solid #e5e7eb;
+}
+
+.edit-preview-table th.cell-header {
+    background: #f9fafb;
+    color: #6b7280;
+    font-weight: 600;
+    text-align: center;
+    font-size: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.edit-preview-table td.cell-header {
+    background: #f9fafb;
+    color: #6b7280;
+    font-weight: 600;
+    text-align: center;
+    font-size: 12px;
+    position: sticky;
+    left: 0;
+    z-index: 5;
+}
+
+/* Cell states */
+.preview-cell {
+    background: white;
+    min-width: 120px;
+}
+
+.cell-new {
+    background: #ecfdf5 !important; /* Light green */
+    border-left: 3px solid #10b981;
+}
+
+.cell-modified {
+    background: #fef3c7 !important; /* Light amber */
+    border-left: 3px solid #f59e0b;
+}
+
+.cell-unchanged {
+    background: #f9fafb !important;
+    color: #9ca3af;
+}
+
+.cell-empty {
+    background: white !important;
+}
+
+/* Before/After display for modified cells */
+.cell-before {
+    color: #dc2626;
+    text-decoration: line-through;
+    font-size: 12px;
+    margin-bottom: 2px;
+}
+
+.cell-arrow {
+    color: #6b7280;
+    font-size: 11px;
+    margin: 2px 0;
+}
+
+.cell-after {
+    color: #059669;
+    font-weight: 500;
+    font-size: 13px;
+}
+
+.cell-value {
+    color: #1f2937;
+}
+
+/* Preview table container - larger area */
+.preview-table-container {
+    margin-top: 16px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    overflow: hidden;
+    flex: 1;
+    min-height: 300px;
+    max-height: calc(90vh - 350px);
+}
+
+/* Scrollable preview area */
+.edit-preview-scroll {
+    overflow: auto;
+    height: 100%;
+    max-height: 100%;
+}
+
+.edit-preview-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.edit-preview-scroll::-webkit-scrollbar-track {
+    background: #f3f4f6;
+}
+
+.edit-preview-scroll::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 4px;
+}
+
+.edit-preview-scroll::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+}
+
+/* Modal body should allow table to grow */
+.edit-preview-modal .modal-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex: 1;
+}
+
+/* Button styles */
+.btn-link {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    cursor: pointer;
+    padding: 6px 12px;
+    font-size: 13px;
+    transition: all 0.2s;
+    border-radius: 6px;
+}
+
+.btn-link:hover {
+    background: #eff6ff;
+}
