@@ -3,7 +3,7 @@
  * Handles all backend communication with conversation-based chat
  */
 
-export const API_BASE_URL = 'https://finoco-dev-lb-1271513380.us-east-1.elb.amazonaws.com/engine';
+export const API_BASE_URL = 'https://dzvrrdbss7nmj.cloudfront.net';
 
 /**
  * Check API health status
