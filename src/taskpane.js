@@ -88,6 +88,8 @@ async function initializeApp() {
     document.getElementById('menuButton')?.addEventListener('click', handleMenuClick);
     document.getElementById('uploadButton')?.addEventListener('click', handleUploadClick);
     document.getElementById('traceDependenciesBtn')?.addEventListener('click', handleTraceDependencies);
+    document.getElementById('findErrorsBtn')?.addEventListener('click', handleFindErrors);
+    document.getElementById('findCircularRefsBtn')?.addEventListener('click', handleFindCircularReferences);
 
     // Set up suggestion click listeners
     const suggestionItems = document.querySelectorAll('.suggestion-item');
@@ -233,6 +235,120 @@ async function handleTraceDependencies() {
         // Re-enable button
         traceBtn.disabled = false;
         traceBtn.textContent = '📊 Trace';
+    }
+}
+
+/**
+ * Handle find errors button click
+ * Directly executes error detection without LLM
+ */
+async function handleFindErrors() {
+    console.log('⚠️ Find Errors button clicked');
+    
+    const findErrorsBtn = document.getElementById('findErrorsBtn');
+    
+    try {
+        // Disable button during execution
+        findErrorsBtn.disabled = true;
+        findErrorsBtn.textContent = '⏳ Scanning...';
+
+        // Import and execute findErrors tool
+        const { execute } = await import('./tools/read/findErrors.js');
+        const result = await execute({
+            scope: 'sheet',  // Search current sheet
+            tracePropagation: true
+        });
+        
+        console.log('✅ Error scan complete:', result);
+        
+        // Build user-friendly message
+        if (result.errorCount === 0) {
+            addMessageToChat('ai', `✅ No errors found! Your worksheet is clean.`, true);
+        } else {
+            let message = `⚠️ Found ${result.errorCount} error(s) in current sheet:\n\n`;
+            
+            // Group by error type
+            const typeBreakdown = [];
+            for (const [type, count] of Object.entries(result.summary.byType)) {
+                if (count > 0) {
+                    typeBreakdown.push(`${type}: ${count}`);
+                }
+            }
+            message += typeBreakdown.join(', ') + '\n\n';
+            
+            // Show first few errors
+            const errorsToShow = result.errors.slice(0, 5);
+            message += 'Error locations:\n';
+            errorsToShow.forEach(err => {
+                message += `• ${err.fullAddress} - ${err.errorType}`;
+                if (err.propagationCount > 0) {
+                    message += ` (affects ${err.propagationCount} cells)`;
+                }
+                message += '\n';
+            });
+            
+            if (result.errorCount > 5) {
+                message += `\n...and ${result.errorCount - 5} more error(s)`;
+            }
+            
+            addMessageToChat('ai', message, true);
+        }
+        
+    } catch (error) {
+        console.error('❌ Failed to find errors:', error);
+        addMessageToChat('ai', `⚠️ Failed to scan for errors: ${error.message}`, true);
+    } finally {
+        // Re-enable button
+        findErrorsBtn.disabled = false;
+        findErrorsBtn.textContent = '⚠️ Find Errors';
+    }
+}
+
+/**
+ * Handle find circular references button click
+ * Directly executes circular reference detection without LLM
+ */
+async function handleFindCircularReferences() {
+    console.log('🔄 Find Circular References button clicked');
+    
+    const findCircularBtn = document.getElementById('findCircularRefsBtn');
+    
+    try {
+        // Disable button during execution
+        findCircularBtn.disabled = true;
+        findCircularBtn.textContent = '⏳ Scanning...';
+
+        // Import and execute findCircularReferences tool
+        const { execute } = await import('./tools/read/findCircularReferences.js');
+        const result = await execute({
+            scope: 'sheet'  // Search current sheet
+        });
+        
+        console.log('✅ Circular reference scan complete:', result);
+        
+        // Build user-friendly message
+        if (result.circularCount === 0) {
+            addMessageToChat('ai', `✅ No circular references found!`, true);
+        } else {
+            let message = `🔄 Found ${result.circularCount} circular reference(s):\n\n`;
+            
+            result.circularReferences.forEach((circ, index) => {
+                message += `${index + 1}. ${circ.chain.join(' → ')}\n`;
+                message += `   Formula: ${circ.formula}\n\n`;
+            });
+            
+            message += `💡 Tip: Circular references can be intentional (like iterative calculations) or errors. Review each one to ensure it's working as expected.`;
+            
+            addMessageToChat('ai', message, true);
+        }
+        
+    } catch (error) {
+        console.error('❌ Failed to find circular references:', error);
+        addMessageToChat('ai', `⚠️ Failed to scan for circular references: ${error.message}`, true);
+    } finally {
+        // Re-enable button
+        findCircularBtn.disabled = false;
+        findCircularBtn.textContent = '🔄 Circular Refs';
     }
 }
 
@@ -449,7 +565,8 @@ async function executeFrontendTools(toolCalls) {
     // List of READ tools that require continuation
     const READ_TOOLS = ['getFullRangeData', 'getColumnData', 'getTableData', 'getFormulasInRange', 
                         'getCellPrecedents', 'getCellDependents', 'getRelatedData', 'getChartSourceData',
-                        'searchValues', 'getNamedRangeData', 'traceDependencyGraph'];
+                        'searchValues', 'getNamedRangeData', 'traceDependencyGraph', 'findErrors', 
+                        'findCircularReferences'];
     
     // Separate READ and WRITE tools
     const readTools = toolCalls.filter(tc => READ_TOOLS.includes(tc.tool));

@@ -54,9 +54,20 @@
                 <span class="context-label">Selection:</span>
                 <span class="context-value" id="selectionRange">-</span>
                 <button id="refreshButton" class="refresh-button" title="Refresh selection">🔄</button>
-                <button id="traceDependenciesBtn" class="trace-btn hidden" title="Show dependency graph for this cell">
-                    📊 Trace
-                </button>
+            </div>
+            <!-- Quick Action Buttons -->
+            <div class="context-item" style="margin-top: 8px;">
+                <div class="quick-actions">
+                    <button id="traceDependenciesBtn" class="quick-action-btn hidden" title="Show dependency graph for this cell">
+                        📊 Trace
+                    </button>
+                    <button id="findErrorsBtn" class="quick-action-btn" title="Find all errors in worksheet">
+                        ⚠️ Find Errors
+                    </button>
+                    <button id="findCircularRefsBtn" class="quick-action-btn" title="Detect circular references">
+                        🔄 Circular Refs
+                    </button>
+                </div>
             </div>
         </div>
 
