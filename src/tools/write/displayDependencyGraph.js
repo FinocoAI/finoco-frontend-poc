@@ -310,15 +310,33 @@ function groupByLevel(nodes) {
 
 /**
  * Escape HTML to prevent XSS
+ * Handles all types of inputs gracefully
  */
 function escapeHtml(text) {
-  const map = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#039;'
-  };
-  return text.replace(/[&<>"']/g, m => map[m]);
+  try {
+    // Handle null, undefined, or non-string values
+    if (text === null || text === undefined) {
+      return '';
+    }
+    
+    // Convert to string if not already
+    if (typeof text !== 'string') {
+      text = String(text);
+    }
+    
+    const map = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+    
+    return text.replace(/[&<>"']/g, m => map[m]);
+  } catch (error) {
+    // Fallback: return empty string if anything goes wrong
+    console.warn('escapeHtml error:', error, 'Input:', text);
+    return '';
+  }
 }
 
