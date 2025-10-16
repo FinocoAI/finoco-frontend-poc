@@ -222,6 +222,55 @@ body {
     display: none;
 }
 
+/* Quick Action Buttons */
+.quick-actions {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+}
+
+.quick-action-btn {
+    flex: 1;
+    background: white;
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    font-family: 'Inter', sans-serif;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.quick-action-btn:hover {
+    background: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(65, 105, 225, 0.2);
+}
+
+.quick-action-btn:active {
+    transform: translateY(0);
+}
+
+.quick-action-btn:disabled {
+    background: var(--border);
+    color: var(--text-secondary);
+    cursor: not-allowed;
+    transform: none;
+}
+
+.quick-action-btn.hidden {
+    display: none;
+}
+
 /* Chat Container */
 .chat-container {
     flex: 1;

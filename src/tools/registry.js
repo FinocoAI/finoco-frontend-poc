@@ -21,6 +21,8 @@ import * as getCellPrecedents from './read/getCellPrecedents.js';
 import * as getRelatedData from './read/getRelatedData.js';
 import * as getChartSourceData from './read/getChartSourceData.js';
 import * as traceDependencyGraph from './read/traceDependencyGraph.js';
+import * as findErrors from './read/findErrors.js';
+import * as findCircularReferences from './read/findCircularReferences.js';
 
 // Import write tools
 import * as writeDataToRange from './write/writeDataToRange.js';
@@ -56,6 +58,10 @@ export const toolRegistry = {
     getCellDependents,
     getCellPrecedents,
     traceDependencyGraph,
+
+    // Error detection and audit
+    findErrors,
+    findCircularReferences,
 
     // Relationships and lookups
     getRelatedData,
