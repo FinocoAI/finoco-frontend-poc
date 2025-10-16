@@ -3,7 +3,7 @@
  * Handles chat interface rendering and message display
  */
 
-import { escapeHtml } from '../utils/helpers.js';
+import { escapeHtml, renderMarkdown } from '../utils/helpers.js';
 
 /**
  * Add message to chat
@@ -25,12 +25,18 @@ export function addMessageToChat(sender, content, isSystem = false) {
         minute: '2-digit'
     });
 
+    // Render content based on sender
+    // AI messages support markdown, user messages are plain text
+    const renderedContent = sender === 'ai' 
+        ? renderMarkdown(content) 
+        : escapeHtml(content);
+
     messageDiv.innerHTML = `
         <div class="message-header">
             <div class="message-avatar">${sender === 'user' ? 'You' : 'AI'}</div>
             <div class="message-sender">${sender === 'user' ? 'You' : 'AI Assistant'}</div>
         </div>
-        <div class="message-content">${escapeHtml(content)}</div>
+        <div class="message-content">${renderedContent}</div>
         <div class="message-time">${time}</div>
     `;
 
