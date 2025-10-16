@@ -32,6 +32,46 @@ export const toolDefinition = {
   }
 };
 
+/**
+ * Check if a formula directly references its own cell address
+ * Handles cases like =SUM(A1, B2, A1) in cell A1
+ */
+function checkDirectSelfReference(formula, cellAddress, sheetName) {
+  // Remove the leading '=' and convert to uppercase for comparison
+  const formulaUpper = formula.toUpperCase();
+  const cellAddressUpper = cellAddress.toUpperCase();
+  
+  // Pattern to match cell references in the formula
+  // Matches: A1, $A$1, $A1, A$1, Sheet1!A1, 'Sheet Name'!A1
+  const cellRefPattern = /(?:(?:'[^']*'|[\w]+)!)?(\$?[A-Z]+\$?\d+)/g;
+  
+  let match;
+  while ((match = cellRefPattern.exec(formulaUpper)) !== null) {
+    const refMatch = match[0]; // Full match (e.g., "Sheet1!A1" or "A1")
+    const cellPart = match[1]; // Just the cell part (e.g., "A1" or "$A$1")
+    
+    // Remove $ signs from absolute references
+    const normalizedCell = cellPart.replace(/\$/g, '');
+    
+    // Check if this reference is to the same cell
+    if (normalizedCell === cellAddressUpper) {
+      // If there's a sheet reference, verify it's the same sheet or no sheet specified
+      if (refMatch.includes('!')) {
+        const sheetPart = refMatch.split('!')[0].replace(/'/g, '').toUpperCase();
+        const currentSheetUpper = sheetName.toUpperCase();
+        if (sheetPart === currentSheetUpper) {
+          return true;
+        }
+      } else {
+        // No sheet specified, same cell reference = circular
+        return true;
+      }
+    }
+  }
+  
+  return false;
+}
+
 export async function execute(params) {
   console.log('🔄 Executing findCircularReferences:', params);
 
@@ -91,6 +131,21 @@ export async function execute(params) {
               
               // Skip if already checked
               if (checkedCells.has(fullAddress)) {
+                continue;
+              }
+
+              // FIRST: Check for direct self-reference in the formula
+              // This catches cases like =SUM(A1, B2, A1) where A1 references itself
+              const directSelfRef = checkDirectSelfReference(formula, cellAddress, sheetNameToScan);
+              if (directSelfRef) {
+                circularRefs.push({
+                  startCell: fullAddress,
+                  chain: [fullAddress, fullAddress],
+                  chainLength: 2,
+                  formula: formula
+                });
+                checkedCells.add(fullAddress);
+                console.log(`  🔄 Found direct self-reference: ${fullAddress} → ${fullAddress}`);
                 continue;
               }
 
