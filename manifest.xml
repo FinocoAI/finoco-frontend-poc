@@ -5,8 +5,8 @@
   xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
   xsi:type="TaskPaneApp">
 
-  <Id>12345678-1234-1234-1234-123456789012</Id>
-  <Version>1.0.0.0</Version>
+  <Id>87654321-4321-4321-4321-210987654321</Id>
+  <Version>1.0.0.1</Version>
   <ProviderName>Finoco.ai</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Warren by Finoco.ai"/>
