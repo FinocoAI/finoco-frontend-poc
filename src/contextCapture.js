@@ -63,17 +63,22 @@ export async function captureInitialContext() {
       }
     }
 
-    // Process workbook-level named ranges
+    // Process workbook-level named ranges (with validation)
     for (let i = 0; i < workbookNamedRanges.items.length; i++) {
       const namedRange = workbookNamedRanges.items[i];
       namedRange.load("name, formula");
       await context.sync();
 
-      initialContext.workbookNamedRanges.push({
-        name: namedRange.name,
-        address: namedRange.formula.replace("=", ""), // Remove leading "="
-        sheet: extractSheetFromFormula(namedRange.formula),
-      });
+      // Validate and filter out problematic named ranges
+      if (isValidNamedRange(namedRange.name, namedRange.formula)) {
+        initialContext.workbookNamedRanges.push({
+          name: namedRange.name,
+          address: namedRange.formula.replace("=", ""), // Remove leading "="
+          sheet: extractSheetFromFormula(namedRange.formula),
+        });
+      } else {
+        console.log(`    ⚠️ Skipping invalid named range: ${namedRange.name} (${namedRange.formula})`);
+      }
     }
 
     console.log("✅ Initial Context Captured:", initialContext);
@@ -155,7 +160,7 @@ async function captureSheetMetadata(context, sheet, activeSheetName) {
       });
     }
 
-    // Capture sheet-level named ranges
+    // Capture sheet-level named ranges (with validation)
     const namedRanges = sheet.names;
     namedRanges.load("items");
     await context.sync();
@@ -165,10 +170,15 @@ async function captureSheetMetadata(context, sheet, activeSheetName) {
       namedRange.load("name, formula");
       await context.sync();
 
-      sheetData.namedRanges.push({
-        name: namedRange.name,
-        address: namedRange.formula.replace("=", ""),
-      });
+      // Validate and filter out problematic named ranges
+      if (isValidNamedRange(namedRange.name, namedRange.formula)) {
+        sheetData.namedRanges.push({
+          name: namedRange.name,
+          address: namedRange.formula.replace("=", ""),
+        });
+      } else {
+        console.log(`    ⚠️ Skipping invalid named range on ${sheet.name}: ${namedRange.name}`);
+      }
     }
 
     // Check for formulas and extract formula ranges (compressed format)
@@ -231,6 +241,52 @@ async function captureSheetMetadata(context, sheet, activeSheetName) {
     // Return null to skip this sheet rather than failing entirely
     return null;
   }
+}
+
+/**
+ * Validates if a named range is valid and should be included in context
+ * Filters out:
+ * - Named ranges with #REF! errors
+ * - External file references (URLs, absolute paths)
+ * - Special/escape characters in names (\b, \c, etc.)
+ * - Empty or invalid formulas
+ *
+ * @param {string} name - Named range name
+ * @param {string} formula - Named range formula
+ * @returns {boolean} True if valid, false if should be filtered out
+ */
+function isValidNamedRange(name, formula) {
+  // Filter out names with backslash escape characters
+  if (name.includes("\\")) {
+    return false;
+  }
+
+  // Filter out if formula contains #REF! error
+  if (formula.includes("#REF!")) {
+    return false;
+  }
+
+  // Filter out external file references (http://, https://, file paths)
+  if (formula.includes("http://") || formula.includes("https://") || formula.includes("file://")) {
+    return false;
+  }
+
+  // Filter out SharePoint/OneDrive URLs (d.docs.live.net, etc.)
+  if (formula.includes(".live.net") || formula.includes(".sharepoint.com")) {
+    return false;
+  }
+
+  // Filter out absolute file paths (common patterns)
+  if (formula.includes(":\\") || formula.includes("]/")) {
+    return false;
+  }
+
+  // Filter out empty formulas
+  if (!formula || formula.trim() === "=" || formula.trim() === "") {
+    return false;
+  }
+
+  return true;
 }
 
 /**
