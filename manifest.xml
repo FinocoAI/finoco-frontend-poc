@@ -88,8 +88,8 @@
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="GetStarted.Title" DefaultValue="Get started with Warren!"/>
-        <bt:String id="CommandsGroup.Label" DefaultValue="Warren"/>
-        <bt:String id="TaskpaneButton.Label" DefaultValue="Open Warren"/>
+        <bt:String id="CommandsGroup.Label" DefaultValue="Waarren"/>
+        <bt:String id="TaskpaneButton.Label" DefaultValue="Warren"/>
       </bt:ShortStrings>
       <bt:LongStrings>
         <bt:String id="GetStarted.Description" DefaultValue="Warren by Finoco.ai is ready. Click 'Open Warren' to get started."/>
