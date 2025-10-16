@@ -61,6 +61,9 @@
                     <button id="traceDependenciesBtn" class="quick-action-btn hidden" title="Show dependency graph for this cell">
                         📊 Trace
                     </button>
+                    <button id="previewEditBtn" class="quick-action-btn" title="Preview cell change impact before committing">
+                        🔍 What-If
+                    </button>
                     <button id="findErrorsBtn" class="quick-action-btn" title="Find all errors in worksheet">
                         ⚠️ Find Errors
                     </button>
@@ -186,6 +189,70 @@
                 </div>
             </div>
         </div>
+
+        <!-- Preview Edit Mode - Input Modal -->
+        <div id="previewInputModal" class="preview-modal">
+            <div class="preview-modal-content preview-input-modal-content">
+                <div class="preview-modal-header">
+                    <h3>🔍 What-If Analysis</h3>
+                    <p class="preview-modal-subtitle">Enter a new value to preview its impact</p>
+                </div>
+                <div class="preview-modal-body">
+                    <div id="previewCellInfo"></div>
+                    <div class="preview-input-group">
+                        <label for="previewNewValueInput">New Value:</label>
+                        <input type="text" id="previewNewValueInput" class="preview-input" placeholder="Enter new value...">
+                        <div class="preview-input-hint">
+                            💡 Tip: Enter numbers, formulas (=A1+B2), or percentages (15%)
+                        </div>
+                    </div>
+                </div>
+                <div class="preview-modal-footer">
+                    <button id="previewInputConfirm" class="preview-btn preview-btn-primary">
+                        ▶ Preview Impact
+                    </button>
+                    <button id="previewInputCancel" class="preview-btn preview-btn-secondary">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preview Edit Mode - Loading Modal -->
+        <div id="previewLoadingModal" class="preview-modal">
+            <div class="preview-modal-content preview-loading-modal-content">
+                <div class="preview-loading-spinner"></div>
+                <p class="preview-loading-text">Calculating impact...</p>
+            </div>
+        </div>
+
+        <!-- Preview Edit Mode - Impact Preview Modal -->
+        <div id="previewImpactModal" class="preview-modal">
+            <div class="preview-modal-content preview-impact-modal-content">
+                <div class="preview-modal-header">
+                    <h3>📊 Change Impact Preview</h3>
+                    <p class="preview-modal-subtitle">Review the changes before committing</p>
+                </div>
+                <div class="preview-modal-body">
+                    <div id="previewImpactDetails">
+                        <!-- Content inserted by JavaScript -->
+                    </div>
+                </div>
+                <div class="preview-modal-footer">
+                    <button id="previewCommitBtn" class="preview-btn preview-btn-success">
+                        ✓ Commit Changes
+                        <span class="preview-kbd-hint">Ctrl+Enter</span>
+                    </button>
+                    <button id="previewCancelBtn" class="preview-btn preview-btn-danger">
+                        ✗ Cancel & Revert
+                        <span class="preview-kbd-hint">Esc</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Notification -->
+        <div id="previewToast" class="preview-toast"></div>
     </div>
 
     <!-- Main script with ES6 module support -->

@@ -47,6 +47,9 @@ import { setupDebugShortcuts } from './debug/debugUtils.js';
 // Import helpers
 import { handleInputResize, handleInputKeydown } from './utils/helpers.js';
 
+// Import preview edit mode
+import { activatePreviewEditMode } from './tools/previewEditMode.js';
+
 // Track if already initialized to prevent duplicate initialization
 let isInitialized = false;
 
@@ -88,6 +91,7 @@ async function initializeApp() {
     document.getElementById('menuButton')?.addEventListener('click', handleMenuClick);
     document.getElementById('uploadButton')?.addEventListener('click', handleUploadClick);
     document.getElementById('traceDependenciesBtn')?.addEventListener('click', handleTraceDependencies);
+    document.getElementById('previewEditBtn')?.addEventListener('click', handlePreviewEdit);
     document.getElementById('findErrorsBtn')?.addEventListener('click', handleFindErrors);
     document.getElementById('findCircularRefsBtn')?.addEventListener('click', handleFindCircularReferences);
 
@@ -235,6 +239,34 @@ async function handleTraceDependencies() {
         // Re-enable button
         traceBtn.disabled = false;
         traceBtn.textContent = '📊 Trace';
+    }
+}
+
+/**
+ * Handle preview edit button click
+ * Activates What-If Analysis mode for previewing cell changes
+ */
+async function handlePreviewEdit() {
+    console.log('🔍 Preview Edit (What-If) button clicked');
+    
+    const previewBtn = document.getElementById('previewEditBtn');
+    
+    try {
+        // Disable button during execution
+        const originalText = previewBtn.textContent;
+        previewBtn.disabled = true;
+        previewBtn.textContent = '⏳ Starting...';
+
+        // Activate preview edit mode
+        await activatePreviewEditMode();
+        
+    } catch (error) {
+        console.error('❌ Failed to activate preview mode:', error);
+        // Error notification is handled inside activatePreviewEditMode
+    } finally {
+        // Re-enable button
+        previewBtn.disabled = false;
+        previewBtn.textContent = '🔍 What-If';
     }
 }
 
