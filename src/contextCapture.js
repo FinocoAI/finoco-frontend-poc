@@ -9,10 +9,286 @@
  * - Lightweight and fast
  * - Handles errors gracefully (protected sheets, empty sheets, etc.)
  * - Uses Office.js Excel API efficiently
+ *
+ * Two capture modes:
+ * 1. captureLightweightMap() - Ultra-lightweight workbook map (75-80% smaller)
+ * 2. captureInitialContext() - Full detailed context (legacy, for backward compatibility)
  */
 
 /**
- * Main function to capture complete initial context
+ * Capture lightweight workbook map (RECOMMENDED for large workbooks)
+ *
+ * This function captures a minimal workbook structure that's 75-80% smaller than full context.
+ * Agent can then use getSheetMetadata() and getRangePreview() to explore sheets as needed.
+ *
+ * What's included:
+ * - Sheet names, sizes, and basic flags (hasFormulas, hasCharts, etc.)
+ * - Table names and named range names (but not full details)
+ * - Active context (active sheet, active cell)
+ *
+ * What's excluded (fetch on-demand with getSheetMetadata):
+ * - Headers (fetch per sheet when needed)
+ * - Formula ranges and details
+ * - Table structures and headers
+ * - Named range values
+ *
+ * @returns {Promise<Object>} Lightweight workbook map
+ */
+export async function captureLightweightMap() {
+  return Excel.run(async (context) => {
+    console.log("📊 Starting Lightweight Map Capture...");
+
+    // Load workbook metadata
+    const workbook = context.workbook;
+    workbook.load("name, isDirty");
+
+    // Load all worksheets
+    const worksheets = workbook.worksheets;
+    worksheets.load("items");
+
+    // Load workbook-level named ranges (names only)
+    const workbookNamedRanges = workbook.names;
+    workbookNamedRanges.load("items");
+
+    // Get active sheet and cell
+    const activeSheet = workbook.worksheets.getActiveWorksheet();
+    activeSheet.load("name");
+
+    const activeCell = workbook.getActiveCell();
+    activeCell.load("address, values");
+
+    await context.sync();
+
+    // Build lightweight map
+    const lightweightMap = {
+      workbook: {
+        name: workbook.name,
+        isDirty: workbook.isDirty,
+        sheetCount: worksheets.items.length,
+        hasMultipleSheets: worksheets.items.length > 1,
+      },
+      sheets: [],
+      workbookNamedRanges: [],
+      activeSheet: activeSheet.name,
+      activeCell: activeCell.address,
+      activeCellValue: activeCell.values[0][0],
+    };
+
+    // Process each sheet (minimal metadata only)
+    console.log(`📊 Processing ${worksheets.items.length} sheets...`);
+    for (let i = 0; i < worksheets.items.length; i++) {
+      const sheet = worksheets.items[i];
+      console.log(`  [${i + 1}/${worksheets.items.length}] Processing sheet: ${sheet.name || 'Unnamed'}`);
+      const sheetData = await captureLightweightSheetMetadata(context, sheet, activeSheet.name);
+      if (sheetData) {
+        lightweightMap.sheets.push(sheetData);
+        console.log(`    ✓ Sheet captured (${sheetData.rowCount}x${sheetData.columnCount}, ${sheetData.formulaCount} formulas)`);
+      } else {
+        console.log(`    ⚠️ Sheet skipped due to error`);
+      }
+    }
+
+    // Process workbook-level named ranges (names and addresses only, no values)
+    // FIXED: Load all properties in batch BEFORE syncing (not inside loop)
+    for (let i = 0; i < workbookNamedRanges.items.length; i++) {
+      const namedRange = workbookNamedRanges.items[i];
+      namedRange.load("name, formula");
+    }
+    
+    // Single sync after loading all properties
+    if (workbookNamedRanges.items.length > 0) {
+      await context.sync();
+      console.log(`  📝 Processing ${workbookNamedRanges.items.length} workbook-level named ranges...`);
+      
+      for (let i = 0; i < workbookNamedRanges.items.length; i++) {
+        const namedRange = workbookNamedRanges.items[i];
+        if (isValidNamedRange(namedRange.name, namedRange.formula)) {
+          lightweightMap.workbookNamedRanges.push({
+            name: namedRange.name,
+            address: namedRange.formula.replace("=", ""),
+            sheet: extractSheetFromFormula(namedRange.formula),
+          });
+        }
+      }
+    }
+
+    const mapSize = JSON.stringify(lightweightMap).length;
+    const successfulSheets = lightweightMap.sheets.filter(s => !s.error).length;
+    const failedSheets = lightweightMap.sheets.filter(s => s.error).length;
+    
+    console.log("✅ Lightweight Map Captured Successfully!");
+    console.log(`   📦 Map size: ${mapSize.toLocaleString()} characters`);
+    console.log(`   ✓ Sheets captured: ${successfulSheets}/${worksheets.items.length}`);
+    if (failedSheets > 0) {
+      console.log(`   ⚠️ Sheets skipped: ${failedSheets} (errors encountered)`);
+    }
+    console.log(`   📊 Named ranges: ${lightweightMap.workbookNamedRanges.length}`);
+    
+    return lightweightMap;
+  });
+}
+
+/**
+ * Capture lightweight metadata for a single sheet
+ * Only captures essential flags and counts, no actual data
+ *
+ * @param {Excel.RequestContext} context - Excel request context
+ * @param {Excel.Worksheet} sheet - Worksheet to capture
+ * @param {string} activeSheetName - Name of currently active sheet
+ * @returns {Promise<Object|null>} Lightweight sheet metadata or null if error
+ */
+async function captureLightweightSheetMetadata(context, sheet, activeSheetName) {
+  try {
+    sheet.load("name, position, visibility");
+    await context.sync();
+
+    const sheetData = {
+      name: sheet.name,
+      index: sheet.position,
+      isActive: sheet.name === activeSheetName,
+      isEmpty: true,
+      rowCount: 0,
+      columnCount: 0,
+      usedRange: "",
+      hasFormulas: false,
+      formulaCount: 0,
+      hasCharts: false,
+      chartCount: 0,
+      hasPivotTables: false,
+      pivotTableCount: 0,
+      hasTables: false,
+      tableCount: 0,
+      tableNames: [],
+      hasNamedRanges: false,
+      namedRangeCount: 0,
+      namedRangeNames: [],
+    };
+
+    // Get used range (size only, no data)
+    try {
+      const usedRange = sheet.getUsedRange();
+      usedRange.load("address, rowCount, columnCount");
+      await context.sync();
+
+      sheetData.usedRange = usedRange.address.split('!')[1] || usedRange.address;
+      sheetData.rowCount = usedRange.rowCount;
+      sheetData.columnCount = usedRange.columnCount;
+      sheetData.isEmpty = false;
+
+      // Check for formulas (count only)
+      try {
+        const formulaCells = usedRange.getSpecialCells(Excel.SpecialCellType.formulas);
+        formulaCells.load("areas");
+        await context.sync();
+
+        const areas = formulaCells.areas;
+        areas.load("items");
+        await context.sync();
+
+        // FIXED: Load all area properties in batch, then sync once
+        for (let i = 0; i < areas.items.length; i++) {
+          const area = areas.items[i];
+          area.load("rowCount, columnCount");
+        }
+        
+        await context.sync();
+        
+        let totalCount = 0;
+        for (let i = 0; i < areas.items.length; i++) {
+          const area = areas.items[i];
+          totalCount += area.rowCount * area.columnCount;
+        }
+
+        sheetData.hasFormulas = true;
+        sheetData.formulaCount = totalCount;
+      } catch (error) {
+        // No formulas found or sheet is protected - this is expected
+        sheetData.hasFormulas = false;
+        sheetData.formulaCount = 0;
+      }
+    } catch (error) {
+      console.log(`    ℹ️ Sheet "${sheet.name}" is empty`);
+    }
+
+    // Get table info (names and counts only)
+    const tables = sheet.tables;
+    tables.load("items");
+    await context.sync();
+
+    sheetData.hasTables = tables.items.length > 0;
+    sheetData.tableCount = tables.items.length;
+
+    // FIXED: Load all table names in batch, then sync once
+    for (let i = 0; i < tables.items.length; i++) {
+      const table = tables.items[i];
+      table.load("name");
+    }
+    
+    if (tables.items.length > 0) {
+      await context.sync();
+      for (let i = 0; i < tables.items.length; i++) {
+        sheetData.tableNames.push(tables.items[i].name);
+      }
+    }
+
+    // Get named range info (names only)
+    const namedRanges = sheet.names;
+    namedRanges.load("items");
+    await context.sync();
+
+    // FIXED: Load all named range properties in batch, then sync once
+    for (let i = 0; i < namedRanges.items.length; i++) {
+      const namedRange = namedRanges.items[i];
+      namedRange.load("name, formula");
+    }
+    
+    if (namedRanges.items.length > 0) {
+      await context.sync();
+      for (let i = 0; i < namedRanges.items.length; i++) {
+        const namedRange = namedRanges.items[i];
+        if (isValidNamedRange(namedRange.name, namedRange.formula)) {
+          sheetData.namedRangeNames.push(namedRange.name);
+        }
+      }
+    }
+
+    sheetData.hasNamedRanges = sheetData.namedRangeNames.length > 0;
+    sheetData.namedRangeCount = sheetData.namedRangeNames.length;
+
+    // Get chart info (count only)
+    const charts = sheet.charts;
+    charts.load("count");
+    await context.sync();
+    sheetData.hasCharts = charts.count > 0;
+    sheetData.chartCount = charts.count;
+
+    // Get pivot table info (count only)
+    const pivotTables = sheet.pivotTables;
+    pivotTables.load("count");
+    await context.sync();
+    sheetData.hasPivotTables = pivotTables.count > 0;
+    sheetData.pivotTableCount = pivotTables.count;
+
+    return sheetData;
+
+  } catch (error) {
+    console.error(`    ❌ Error processing sheet ${sheet ? sheet.name : 'unknown'}:`, error.message || error);
+    // Return a minimal sheet object to continue processing other sheets
+    return {
+      name: sheet?.name || 'Unknown',
+      index: sheet?.position || -1,
+      isActive: false,
+      isEmpty: true,
+      error: error.message || 'Failed to process sheet'
+    };
+  }
+}
+
+/**
+ * Main function to capture complete initial context (LEGACY - for backward compatibility)
+ *
+ * NOTE: For large workbooks (50+ sheets), use captureLightweightMap() instead.
+ * This function captures more details but results in larger payloads.
  *
  * @returns {Promise<Object>} Initial context object containing workbook, sheets, and active location
  */

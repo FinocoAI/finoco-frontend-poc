@@ -14,6 +14,8 @@ import * as getFullRangeData from './read/getFullRangeData.js';
 import * as getColumnData from './read/getColumnData.js';
 import * as getTableData from './read/getTableData.js';
 import * as getNamedRangeData from './read/getNamedRangeData.js';
+import * as getSheetMetadata from './read/getSheetMetadata.js';
+import * as getRangePreview from './read/getRangePreview.js';
 import * as searchValues from './read/searchValues.js';
 import * as getFormulasInRange from './read/getFormulasInRange.js';
 import * as getCellDependents from './read/getCellDependents.js';
@@ -45,10 +47,12 @@ export const toolRegistry = {
     // Basic data retrieval
     getFullRangeData,
     getColumnData,
+    getRangePreview,
 
     // Structured data
     getTableData,
     getNamedRangeData,
+    getSheetMetadata,
 
     // Search and filter
     searchValues,
