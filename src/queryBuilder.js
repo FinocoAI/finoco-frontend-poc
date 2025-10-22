@@ -233,35 +233,48 @@ export function debugPrintPayload(payload) {
       name: s.name,
       size: `${s.rowCount}x${s.columnCount}`,
       hasFormulas: s.hasFormulas,
-      formulasCount: s.formulas?.length || 0,
+      // Support both old (formulas array) and new (formulaCount) structures
+      formulasCount: s.formulas?.length || s.formulaCount || 0,
       hasCharts: s.hasCharts,
-      tables: s.tables.length,
+      // Support both old (tables array) and new (tableNames array) structures
+      tables: s.tables?.length || s.tableNames?.length || 0,
     })),
   });
 
   // Log formulas separately if any exist
-  const sheetsWithFormulas = payload.initialContext?.sheets?.filter(s => s.formulas?.length > 0) || [];
+  // Support both old structure (detailed formulas) and new structure (formula counts)
+  const sheetsWithFormulas = payload.initialContext?.sheets?.filter(s => 
+    (s.formulas?.length > 0) || (s.hasFormulas && s.formulaCount > 0)
+  ) || [];
+  
   if (sheetsWithFormulas.length > 0) {
     console.group("📐 Formulas Detected:");
     sheetsWithFormulas.forEach(sheet => {
-      console.group(`  Sheet: ${sheet.name} (${sheet.formulas.length} formulas)`);
-      sheet.formulas.forEach((f, index) => {
-        console.log(`    ${index + 1}. ${f.cell}: ${f.formula}`);
-        console.log(`       Value: ${f.value}`);
-        if (f.dependencies.functions.length > 0) {
-          console.log(`       Functions: ${f.dependencies.functions.join(", ")}`);
-        }
-        if (f.dependencies.ranges.length > 0) {
-          console.log(`       Ranges: ${f.dependencies.ranges.join(", ")}`);
-        }
-        if (f.dependencies.cells.length > 0) {
-          console.log(`       Cells: ${f.dependencies.cells.join(", ")}`);
-        }
-        if (f.dependencies.sheets.length > 0) {
-          console.log(`       Cross-sheet refs: ${f.dependencies.sheets.join(", ")}`);
-        }
-      });
-      console.groupEnd();
+      // Old structure: detailed formula array
+      if (sheet.formulas && sheet.formulas.length > 0) {
+        console.group(`  Sheet: ${sheet.name} (${sheet.formulas.length} formulas)`);
+        sheet.formulas.forEach((f, index) => {
+          console.log(`    ${index + 1}. ${f.cell}: ${f.formula}`);
+          console.log(`       Value: ${f.value}`);
+          if (f.dependencies.functions.length > 0) {
+            console.log(`       Functions: ${f.dependencies.functions.join(", ")}`);
+          }
+          if (f.dependencies.ranges.length > 0) {
+            console.log(`       Ranges: ${f.dependencies.ranges.join(", ")}`);
+          }
+          if (f.dependencies.cells.length > 0) {
+            console.log(`       Cells: ${f.dependencies.cells.join(", ")}`);
+          }
+          if (f.dependencies.sheets.length > 0) {
+            console.log(`       Cross-sheet refs: ${f.dependencies.sheets.join(", ")}`);
+          }
+        });
+        console.groupEnd();
+      }
+      // New structure: lightweight map with counts only
+      else if (sheet.hasFormulas && sheet.formulaCount > 0) {
+        console.log(`  Sheet: ${sheet.name} - ${sheet.formulaCount} formulas in ranges: ${sheet.formulaRanges?.join(', ') || 'N/A'}`);
+      }
     });
     console.groupEnd();
   }
