@@ -17,6 +17,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,200..900;1,8..60,200..900&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="taskpane.css">
 </head>
@@ -25,16 +26,15 @@
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1 class="app-title">Warren</h1>
+            <h1 class="app-title source-serif-4">Ask Finoco</h1>
             <div class="header-actions">
-                <button id="historyButton" class="icon-button" title="History">
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
-                        <path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                <button id="historyButton" class="icon-button history-button" title="History">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 0.5C9.04577 0.5 10.0184 0.698144 10.9229 1.0918C11.8386 1.49039 12.6307 2.02582 13.3027 2.69727C13.9746 3.36862 14.5096 4.16092 14.9082 5.07715C15.3019 5.98231 15.5006 6.95486 15.5 8C15.4994 9.04546 15.301 10.0184 14.9082 10.9238C14.5109 11.8396 13.9755 12.6306 13.3027 13.3018C12.6292 13.9736 11.8376 14.5099 10.9229 14.9092C10.02 15.3032 9.04772 15.5011 8.00098 15.5H8C6.24343 15.5 4.70131 14.9699 3.35449 13.9082C2.00441 12.8437 1.13342 11.491 0.730469 9.83691L0.727539 9.82715L0.719727 9.7832C0.71633 9.74182 0.728209 9.70636 0.767578 9.65723C0.827635 9.58228 0.905278 9.53442 1.03711 9.51855H1.04004C1.17093 9.50223 1.27041 9.52571 1.36035 9.58105C1.43978 9.62993 1.50304 9.70394 1.54492 9.83789C1.9315 11.2707 2.7271 12.447 3.91992 13.3535C5.1188 14.2646 6.48436 14.7227 8 14.7227C9.86346 14.7227 11.4617 14.0678 12.7646 12.7656C14.0678 11.4631 14.7233 9.86426 14.7227 8C14.722 6.13594 14.0666 4.53729 12.7646 3.23535C11.5441 2.01505 10.0632 1.36386 8.34668 1.28613L8 1.27734C6.89706 1.27734 5.86077 1.53466 4.89844 2.04785C3.94186 2.55803 3.13619 3.26046 2.48535 4.14941L1.90332 4.94434H4.44434C4.56991 4.94434 4.6522 4.98137 4.72461 5.05371C4.79697 5.12608 4.83328 5.20777 4.83301 5.33203C4.83271 5.4577 4.79585 5.54153 4.72266 5.61523C4.65165 5.68666 4.57124 5.72315 4.44727 5.72266H0.888672C0.763197 5.72261 0.681913 5.68505 0.610352 5.61328C0.555897 5.55864 0.520848 5.49858 0.506836 5.41895L0.5 5.33203V1.77734C0.500085 1.65194 0.537584 1.57056 0.609375 1.49902C0.682112 1.42664 0.764368 1.38905 0.889648 1.38867C1.01329 1.38838 1.09568 1.42489 1.16895 1.49805C1.24222 1.57133 1.27792 1.65294 1.27734 1.77539V4.40723L2.16895 3.28906C2.87735 2.40016 3.73966 1.71515 4.75977 1.22949C5.78136 0.743152 6.85963 0.5 8 0.5ZM8.00098 4.05566C8.12477 4.05537 8.20693 4.0917 8.28027 4.16504C8.35356 4.23832 8.38925 4.31992 8.38867 4.44238V7.85156L10.7578 10.2207C10.8176 10.2807 10.8555 10.3567 10.8555 10.4893C10.8554 10.6218 10.8178 10.6978 10.7578 10.7578C10.6978 10.8178 10.6218 10.8554 10.4893 10.8555C10.3567 10.8555 10.2807 10.8176 10.2207 10.7578L7.73145 8.26855C7.68778 8.22489 7.65958 8.18152 7.6416 8.13672C7.62084 8.08494 7.61133 8.03273 7.61133 7.97754V4.44434C7.61135 4.31892 7.64808 4.23754 7.71973 4.16602C7.79256 4.09343 7.87544 4.056 8.00098 4.05566Z" fill="white" stroke="#808080"/>
                     </svg>
                     <span>History</span>
                 </button>
-                <button id="menuButton" class="icon-button" title="Menu">
+                <button id="menuButton" title="Menu" class="hamburger-menu">
                     <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <circle cx="12" cy="6" r="1.5" fill="currentColor"/>
                         <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
@@ -98,7 +98,7 @@
                         </svg>
                     </button>
                     <button class="suggestion-item" data-query="When is the best time to enter?">
-                        <span>When is the best time to enter?</span>
+                        <span>When is the best time to enter</span>
                         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
@@ -115,24 +115,32 @@
 
         <!-- Input Area -->
         <div class="input-container">
-            <div class="input-wrapper">
-                <button id="uploadButton" class="upload-button">
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <div class="input-wrapper relative-container">
+                <button id="uploadButton" class="upload-button absolute-container">
+                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="width: 16px; height: 16px;">
                         <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
-                    <span>Upload file</span>
+                    <p class="upload-button-text">Upload file</p>
                 </button>
                 <textarea
                     id="userInput"
                     class="user-input"
                     placeholder="How can I help you today?"
-                    rows="1"
+                    rows="5"
                 ></textarea>
-                <button id="sendButton" class="send-button" title="Send message">
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </button>
+                <div class="input-button-row">
+                    <button id="updateModelButton" class="update-model-button" title="Update Model">
+                       <p>Update Model</p>
+                        <svg width="9" height="6" viewBox="0 0 9 6" fill="rgba(128, 128, 128, 1)" xmlns="http://www.w3.org/2000/svg" style="margin-top: 2px;">
+                            <path fill-rule="evenodd" clip-rule="evenodd" d="M4.91753 4.91753C4.79251 5.04251 4.62297 5.11272 4.44619 5.11272C4.26942 5.11272 4.09988 5.04251 3.97486 4.91753L0.203526 1.14619C0.139852 1.08469 0.0890639 1.01113 0.0541246 0.929795C0.0191852 0.848459 0.000794382 0.760979 2.51709e-05 0.67246C-0.00074404 0.58394 0.0161239 0.496154 0.0496445 0.414223C0.0831651 0.332292 0.132667 0.257857 0.195262 0.195262C0.257857 0.132667 0.332292 0.0831648 0.414223 0.0496442C0.496154 0.0161236 0.58394 -0.00074404 0.67246 2.51714e-05C0.760979 0.000794382 0.848459 0.0191852 0.929795 0.0541246C1.01113 0.0890639 1.08469 0.139852 1.14619 0.203525L4.44619 3.50353L7.74619 0.203525C7.87193 0.0820866 8.04033 0.0148904 8.21513 0.0164093C8.38992 0.0179282 8.55713 0.0880407 8.68074 0.211646C8.80434 0.335252 8.87446 0.50246 8.87598 0.677258C8.87749 0.852056 8.8103 1.02046 8.68886 1.14619L4.91753 4.91753Z" fill="#808080"/>
+                        </svg>
+                    </button>
+                    <button id="sendButton" class="send-button" title="Send message">
+                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
 
