@@ -3,7 +3,7 @@
  * Handles Excel context capture and management
  */
 
-import { captureInitialContext } from '../contextCapture.js';
+import { captureLightweightMap, captureInitialContext } from '../contextCapture.js';
 import { captureUserSelection } from '../selectionCapture.js';
 import { updateContextDisplay } from '../ui/contextUI.js';
 import { updateTraceButtonVisibility } from '../taskpane.js';
@@ -27,14 +27,25 @@ export let enhancedContext = {
 };
 
 /**
- * Update enhanced context using new architecture
+ * Update enhanced context using new architecture with lightweight map
+ * 
+ * By default, uses captureLightweightMap() for 75-80% smaller payload.
+ * Agent can then use getSheetMetadata() and getRangePreview() to explore as needed.
+ * 
+ * Set useLightweightMap=false to use legacy full context capture.
  */
-export async function updateEnhancedContext() {
+export async function updateEnhancedContext(useLightweightMap = true) {
     try {
         console.log('🔄 Updating enhanced context...');
 
-        // Capture initial context (always)
-        enhancedContext.initialContext = await captureInitialContext();
+        // Capture initial context - use lightweight map by default
+        if (useLightweightMap) {
+            console.log('   📦 Using lightweight map (progressive loading enabled)');
+            enhancedContext.initialContext = await captureLightweightMap();
+        } else {
+            console.log('   📚 Using full context (legacy mode)');
+            enhancedContext.initialContext = await captureInitialContext();
+        }
 
         // Capture user selection (always try - it returns null if nothing selected)
         enhancedContext.userSelection = await captureUserSelection();

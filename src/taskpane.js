@@ -594,11 +594,17 @@ async function executeFrontendTools(toolCalls) {
 
     console.log(`🔧 Executing ${toolCalls.length} frontend tool(s)`);
 
-    // List of READ tools that require continuation
-    const READ_TOOLS = ['getFullRangeData', 'getColumnData', 'getTableData', 'getFormulasInRange', 
-                        'getCellPrecedents', 'getCellDependents', 'getRelatedData', 'getChartSourceData',
-                        'searchValues', 'getNamedRangeData', 'traceDependencyGraph', 'findErrors', 
-                        'findCircularReferences'];
+    // List of READ tools that require continuation (execute individually, not batched)
+    const READ_TOOLS = [
+        // Progressive loading tools (preferred)
+        'getSheetMetadata', 'getRangePreview',
+        // Full data loading tools
+        'getFullRangeData', 'getColumnData', 'getTableData', 'getFormulasInRange', 
+        'getNamedRangeData', 'getChartSourceData',
+        // Dependency and analysis tools
+        'getCellPrecedents', 'getCellDependents', 'getRelatedData', 'traceDependencyGraph', 
+        'searchValues', 'findErrors', 'findCircularReferences'
+    ];
     
     // Separate READ and WRITE tools
     const readTools = toolCalls.filter(tc => READ_TOOLS.includes(tc.tool));
