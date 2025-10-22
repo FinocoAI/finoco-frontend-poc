@@ -5,6 +5,8 @@
  * Executor: Frontend (requires Office.js)
  */
 
+import { parseFormulaReferences, getRepresentativeAddress } from '../../utils/formulaParser.js';
+
 export const toolDefinition = {
   name: "traceDependencyGraph",
   description: "Trace cell dependencies recursively to build a complete dependency graph (precedents and/or dependents)",
@@ -141,6 +143,7 @@ export async function execute(params) {
 
 /**
  * Recursively trace precedents (cells that feed into this cell)
+ * Uses hybrid approach: Try Excel API first, fallback to formula parsing
  */
 async function tracePrecedentsRecursive(context, graph, sheetName, address, level, maxDepth) {
   if (level > maxDepth) {
@@ -151,33 +154,84 @@ async function tracePrecedentsRecursive(context, graph, sheetName, address, leve
     // Get worksheet and range
     const worksheet = context.workbook.worksheets.getItem(sheetName);
     const range = worksheet.getRange(address);
-    range.load("address");
+    range.load("address, formulas");
     await context.sync();
 
-    // Get direct precedents
-    let precedents;
-    try {
-      precedents = range.getDirectPrecedents();
-      precedents.load("address, areas");
-      await context.sync();
-    } catch (error) {
-      // No precedents (not a formula cell)
+    const formula = range.formulas[0][0];
+    
+    console.log(`    ${'  '.repeat(level)}🔍 Checking ${sheetName}!${address}, formula: ${formula}`);
+    
+    // If no formula, no precedents
+    if (!formula || !formula.startsWith('=')) {
+      console.log(`    ${'  '.repeat(level)}❌ No formula found, skipping`);
       return;
     }
 
-    // Extract precedent addresses
-    const areas = precedents.areas;
-    areas.load("items");
-    await context.sync();
+    let precedentRefs = [];
+    let usedFormulaParsing = false;
 
-    for (let i = 0; i < areas.items.length; i++) {
-      const area = areas.items[i];
-      area.load("address");
+    // APPROACH 1: Try Excel API first
+    try {
+      const precedents = range.getDirectPrecedents();
+      precedents.load("address, areas");
       await context.sync();
 
-      // Parse full address (includes sheet name)
-      const fullAddress = area.address;
-      const { sheet: precSheet, address: precAddr } = parseFullAddress(fullAddress, sheetName);
+      const areas = precedents.areas;
+      areas.load("items");
+      await context.sync();
+
+      // Extract addresses from API
+      for (let i = 0; i < areas.items.length; i++) {
+        const area = areas.items[i];
+        area.load("address");
+        await context.sync();
+        
+        const fullAddress = area.address;
+        const { sheet: precSheet, address: precAddr } = parseFullAddress(fullAddress, sheetName);
+        precedentRefs.push({ sheet: precSheet, address: precAddr });
+      }
+
+      console.log(`    ${'  '.repeat(level)}📍 API found ${precedentRefs.length} precedents for ${sheetName}!${address}`);
+    } catch (apiError) {
+      // API failed - this is expected for complex formulas
+      console.log(`    ${'  '.repeat(level)}⚠️ API failed for ${sheetName}!${address}: ${apiError.message}`);
+      usedFormulaParsing = true;
+    }
+
+    // APPROACH 2: If API returned nothing or failed, parse formula
+    if (precedentRefs.length === 0) {
+      if (!usedFormulaParsing) {
+        console.log(`    ${'  '.repeat(level)}📝 API returned 0 precedents, using formula parsing for ${sheetName}!${address}`);
+      }
+      
+      console.log(`    ${'  '.repeat(level)}🔎 Parsing formula: ${formula}`);
+      const parsedRefs = parseFormulaReferences(formula, sheetName);
+      console.log(`    ${'  '.repeat(level)}📊 Parsed ${parsedRefs.length} references:`, parsedRefs);
+      
+      // Convert parsed references to addresses
+      for (const ref of parsedRefs) {
+        let addr = ref.address;
+        
+        // For full column/row references, use representative cell
+        if (ref.isFullColumn || ref.isFullRow) {
+          addr = getRepresentativeAddress(ref.address);
+          console.log(`    ${'  '.repeat(level)}🔄 Converted ${ref.address} to ${addr} for visualization`);
+        } else if (ref.isRange && !ref.isFullColumn && !ref.isFullRow) {
+          // For regular ranges, use first cell
+          addr = ref.address.split(':')[0];
+        }
+        
+        precedentRefs.push({ sheet: ref.sheet, address: addr });
+      }
+      
+      console.log(`    ${'  '.repeat(level)}✅ Final precedentRefs (${precedentRefs.length}):`, precedentRefs);
+    }
+
+    // Process all precedent references - with retry logic if API refs fail
+    let retryWithParsing = false;
+    let processedCount = 0;
+    
+    for (const { sheet: precSheet, address: precAddr } of precedentRefs) {
       const nodeId = `${precSheet}!${precAddr}`;
 
       // Skip if already visited
@@ -185,8 +239,18 @@ async function tracePrecedentsRecursive(context, graph, sheetName, address, leve
         continue;
       }
 
-      // Get cell info
-      const cellInfo = await getCellInfo(context, precSheet, precAddr);
+      // Get cell info - with error handling
+      let cellInfo;
+      try {
+        cellInfo = await getCellInfo(context, precSheet, precAddr);
+      } catch (cellError) {
+        console.warn(`    ${'  '.repeat(level)}⚠️ Could not get info for ${nodeId}: ${cellError.message}`);
+        // If we got this from the API but can't access it, mark for retry
+        if (!usedFormulaParsing) {
+          retryWithParsing = true;
+        }
+        continue;
+      }
 
       // Add node
       graph.nodes.set(nodeId, {
@@ -209,9 +273,68 @@ async function tracePrecedentsRecursive(context, graph, sheetName, address, leve
       });
 
       console.log(`    ${'  '.repeat(level)}⬅ Level ${level}: ${nodeId}`);
+      processedCount++;
 
       // Recurse
       await tracePrecedentsRecursive(context, graph, precSheet, precAddr, level + 1, maxDepth);
+    }
+    
+    // If API refs failed to load and we haven't used formula parsing yet, retry
+    if (retryWithParsing && processedCount === 0) {
+      console.log(`    ${'  '.repeat(level)}🔁 API references failed to load, retrying with formula parsing`);
+      
+      const parsedRefs = parseFormulaReferences(formula, sheetName);
+      console.log(`    ${'  '.repeat(level)}📊 Parsed ${parsedRefs.length} references:`, parsedRefs);
+      
+      for (const ref of parsedRefs) {
+        let addr = ref.address;
+        
+        if (ref.isFullColumn || ref.isFullRow) {
+          addr = getRepresentativeAddress(ref.address);
+          console.log(`    ${'  '.repeat(level)}🔄 Converted ${ref.address} to ${addr}`);
+        } else if (ref.isRange && !ref.isFullColumn && !ref.isFullRow) {
+          addr = ref.address.split(':')[0];
+        }
+        
+        const nodeId = `${ref.sheet}!${addr}`;
+        
+        // Skip if already visited
+        if (graph.visited.has(nodeId)) {
+          continue;
+        }
+        
+        // Get cell info
+        try {
+          const cellInfo = await getCellInfo(context, ref.sheet, addr);
+          
+          // Add node
+          graph.nodes.set(nodeId, {
+            id: nodeId,
+            address: addr,
+            sheet: ref.sheet,
+            value: cellInfo.value,
+            formula: cellInfo.formula,
+            level: level,
+            type: "precedent"
+          });
+          graph.visited.add(nodeId);
+
+          // Add edge
+          graph.edges.push({
+            from: nodeId,
+            to: `${sheetName}!${address}`,
+            formula: cellInfo.formula || '',
+            relationshipType: "feeds_into"
+          });
+
+          console.log(`    ${'  '.repeat(level)}⬅ Level ${level}: ${nodeId}`);
+
+          // Recurse
+          await tracePrecedentsRecursive(context, graph, ref.sheet, addr, level + 1, maxDepth);
+        } catch (err) {
+          console.warn(`    ${'  '.repeat(level)}⚠️ Could not process parsed ref ${nodeId}: ${err.message}`);
+        }
+      }
     }
   } catch (error) {
     // Silently handle errors for individual cells
