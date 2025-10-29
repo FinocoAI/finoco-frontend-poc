@@ -248,3 +248,4 @@ function isAddressInRange(address, range) {
          addrRow >= startRow && addrRow <= endRow;
 }
 
+

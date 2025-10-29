@@ -74,12 +74,12 @@ export async function captureLightweightMap() {
       activeCellValue: activeCell.values[0][0],
     };
 
-    // Process each sheet (minimal metadata only)
-    console.log(`📊 Processing ${worksheets.items.length} sheets...`);
+    // Process each sheet with optimized batching
+    console.log(`📊 Processing ${worksheets.items.length} sheets with optimized batching...`);
     for (let i = 0; i < worksheets.items.length; i++) {
       const sheet = worksheets.items[i];
       console.log(`  [${i + 1}/${worksheets.items.length}] Processing sheet: ${sheet.name || 'Unnamed'}`);
-      const sheetData = await captureLightweightSheetMetadata(context, sheet, activeSheet.name);
+      const sheetData = await captureLightweightSheetMetadataOptimized(context, sheet, activeSheet.name);
       if (sheetData) {
         lightweightMap.sheets.push(sheetData);
         console.log(`    ✓ Sheet captured (${sheetData.rowCount}x${sheetData.columnCount}, ${sheetData.formulaCount} formulas)`);
@@ -129,8 +129,146 @@ export async function captureLightweightMap() {
 }
 
 /**
- * Capture lightweight metadata for a single sheet
- * Only captures essential flags and counts, no actual data
+ * OPTIMIZED: Capture lightweight metadata for a single sheet with aggressive batching
+ * Reduces sync() calls from ~8-10 to ~3-4 per sheet by batching all loads
+ *
+ * @param {Excel.RequestContext} context - Excel request context
+ * @param {Excel.Worksheet} sheet - Worksheet to capture
+ * @param {string} activeSheetName - Name of currently active sheet
+ * @returns {Promise<Object|null>} Lightweight sheet metadata or null if error
+ */
+async function captureLightweightSheetMetadataOptimized(context, sheet, activeSheetName) {
+  try {
+    // MEGA-BATCH 1: Load ALL sheet properties at once before any sync
+    sheet.load("name, position, visibility");
+    const tables = sheet.tables;
+    tables.load("items");
+    const namedRanges = sheet.names;
+    namedRanges.load("items");
+    const charts = sheet.charts;
+    charts.load("count");
+    const pivotTables = sheet.pivotTables;
+    pivotTables.load("count");
+    
+    // First sync to get sheet basics
+    await context.sync();
+
+    const sheetData = {
+      name: sheet.name,
+      index: sheet.position,
+      isActive: sheet.name === activeSheetName,
+      isEmpty: true,
+      rowCount: 0,
+      columnCount: 0,
+      usedRange: "",
+      hasFormulas: false,
+      formulaCount: 0,
+      hasCharts: charts.count > 0,
+      chartCount: charts.count,
+      hasPivotTables: pivotTables.count > 0,
+      pivotTableCount: pivotTables.count,
+      hasTables: tables.items.length > 0,
+      tableCount: tables.items.length,
+      tableNames: [],
+      hasNamedRanges: false,
+      namedRangeCount: 0,
+      namedRangeNames: [],
+    };
+
+    // MEGA-BATCH 2: Load used range + all table names + all named range details
+    let usedRange;
+    try {
+      usedRange = sheet.getUsedRange();
+      usedRange.load("address, rowCount, columnCount");
+    } catch (error) {
+      // Sheet is empty, that's fine
+    }
+
+    // Load all table names in batch
+    for (let i = 0; i < tables.items.length; i++) {
+      tables.items[i].load("name");
+    }
+
+    // Load all named range properties in batch
+    for (let i = 0; i < namedRanges.items.length; i++) {
+      namedRanges.items[i].load("name, formula");
+    }
+
+    // Single sync for all of batch 2
+    await context.sync();
+
+    // Process used range info (if exists)
+    if (usedRange) {
+      sheetData.usedRange = usedRange.address.split('!')[1] || usedRange.address;
+      sheetData.rowCount = usedRange.rowCount;
+      sheetData.columnCount = usedRange.columnCount;
+      sheetData.isEmpty = false;
+    }
+
+    // Process tables (already loaded)
+    for (let i = 0; i < tables.items.length; i++) {
+      sheetData.tableNames.push(tables.items[i].name);
+    }
+
+    // Process named ranges (already loaded)
+    for (let i = 0; i < namedRanges.items.length; i++) {
+      const namedRange = namedRanges.items[i];
+      if (isValidNamedRange(namedRange.name, namedRange.formula)) {
+        sheetData.namedRangeNames.push(namedRange.name);
+      }
+    }
+    sheetData.hasNamedRanges = sheetData.namedRangeNames.length > 0;
+    sheetData.namedRangeCount = sheetData.namedRangeNames.length;
+
+    // MEGA-BATCH 3: Formula detection (only if sheet has data)
+    if (usedRange) {
+      try {
+        const formulaCells = usedRange.getSpecialCells(Excel.SpecialCellType.formulas);
+        formulaCells.load("areas");
+        await context.sync();
+
+        const areas = formulaCells.areas;
+        areas.load("items");
+        await context.sync();
+
+        // Load all area properties in one batch
+        for (let i = 0; i < areas.items.length; i++) {
+          areas.items[i].load("rowCount, columnCount");
+        }
+        
+        await context.sync();
+        
+        let totalCount = 0;
+        for (let i = 0; i < areas.items.length; i++) {
+          totalCount += areas.items[i].rowCount * areas.items[i].columnCount;
+        }
+
+        sheetData.hasFormulas = true;
+        sheetData.formulaCount = totalCount;
+      } catch (error) {
+        // No formulas or sheet is protected
+        sheetData.hasFormulas = false;
+        sheetData.formulaCount = 0;
+      }
+    }
+
+    return sheetData;
+
+  } catch (error) {
+    console.error(`    ❌ Error processing sheet ${sheet ? sheet.name : 'unknown'}:`, error.message || error);
+    return {
+      name: sheet?.name || 'Unknown',
+      index: sheet?.position || -1,
+      isActive: false,
+      isEmpty: true,
+      error: error.message || 'Failed to process sheet'
+    };
+  }
+}
+
+/**
+ * LEGACY: Capture lightweight metadata for a single sheet
+ * Use captureLightweightSheetMetadataOptimized for better performance
  *
  * @param {Excel.RequestContext} context - Excel request context
  * @param {Excel.Worksheet} sheet - Worksheet to capture
@@ -330,10 +468,11 @@ export async function captureInitialContext() {
       activeCell: activeCell.address,
     };
 
-    // Process each sheet
+    // Process each sheet with optimized batching
+    console.log(`📊 Processing ${worksheets.items.length} sheets with optimized batching...`);
     for (let i = 0; i < worksheets.items.length; i++) {
       const sheet = worksheets.items[i];
-      const sheetData = await captureSheetMetadata(context, sheet, activeSheet.name);
+      const sheetData = await captureSheetMetadataOptimized(context, sheet, activeSheet.name);
       if (sheetData) {
         initialContext.sheets.push(sheetData);
       }
@@ -363,7 +502,161 @@ export async function captureInitialContext() {
 }
 
 /**
- * Captures metadata for a single sheet
+ * Optimized version: Captures metadata for a single sheet with batched operations
+ * This version minimizes sync() calls by batching property loads
+ *
+ * @param {Excel.RequestContext} context - Excel request context
+ * @param {Excel.Worksheet} sheet - Worksheet to capture
+ * @param {string} activeSheetName - Name of currently active sheet
+ * @returns {Promise<Object|null>} Sheet metadata object or null if error
+ */
+async function captureSheetMetadataOptimized(context, sheet, activeSheetName) {
+  try {
+    // BATCH 1: Load all basic properties at once
+    sheet.load("name, position, visibility");
+    const tables = sheet.tables;
+    tables.load("items");
+    const namedRanges = sheet.names;
+    namedRanges.load("items");
+    const charts = sheet.charts;
+    charts.load("count");
+    const pivotTables = sheet.pivotTables;
+    pivotTables.load("count");
+    
+    // Single sync for all basic properties
+    await context.sync();
+
+    console.log(`  📄 Processing sheet: ${sheet.name}`);
+
+    const sheetData = {
+      name: sheet.name,
+      index: sheet.position,
+      isActive: sheet.name === activeSheetName,
+      usedRange: "",
+      rowCount: 0,
+      columnCount: 0,
+      potentialHeaders: [],
+      tables: [],
+      namedRanges: [],
+      hasFormulas: false,
+      formulaRanges: [],
+      formulaCount: 0,
+      hasCharts: charts.count > 0,
+      hasPivotTables: pivotTables.count > 0,
+    };
+
+    // BATCH 2: Load used range and table/named range details
+    let usedRange;
+    let firstRow;
+    try {
+      usedRange = sheet.getUsedRange();
+      usedRange.load("address, rowCount, columnCount");
+      
+      // Load table names in batch
+      for (let i = 0; i < tables.items.length; i++) {
+        const table = tables.items[i];
+        table.load("name");
+        const tableRange = table.getRange();
+        tableRange.load("address");
+      }
+      
+      // Load named range details in batch
+      for (let i = 0; i < namedRanges.items.length; i++) {
+        const namedRange = namedRanges.items[i];
+        namedRange.load("name, formula");
+      }
+      
+      await context.sync();
+
+      sheetData.usedRange = usedRange.address;
+      sheetData.rowCount = usedRange.rowCount;
+      sheetData.columnCount = usedRange.columnCount;
+
+      // Get first row if data exists
+      if (usedRange.rowCount > 0) {
+        firstRow = usedRange.getRow(0);
+        firstRow.load("values");
+        await context.sync();
+        sheetData.potentialHeaders = firstRow.values[0].map(val => String(val));
+      }
+      
+    } catch (error) {
+      console.log(`    ℹ️ No used range found for ${sheet.name} (likely empty)`);
+    }
+
+    // Process tables (already loaded)
+    for (let i = 0; i < tables.items.length; i++) {
+      const table = tables.items[i];
+      const tableRange = table.getRange();
+      sheetData.tables.push({
+        name: table.name,
+        address: tableRange.address,
+      });
+    }
+
+    // Process named ranges (already loaded, just validate)
+    for (let i = 0; i < namedRanges.items.length; i++) {
+      const namedRange = namedRanges.items[i];
+      if (isValidNamedRange(namedRange.name, namedRange.formula)) {
+        sheetData.namedRanges.push({
+          name: namedRange.name,
+          address: namedRange.formula.replace("=", ""),
+        });
+      }
+    }
+
+    // BATCH 3: Formula detection (most expensive operation)
+    if (usedRange) {
+      try {
+        const formulaCells = usedRange.getSpecialCells(Excel.SpecialCellType.formulas);
+        formulaCells.load("address, areas");
+        await context.sync();
+
+        sheetData.hasFormulas = true;
+
+        const areas = formulaCells.areas;
+        areas.load("items");
+        await context.sync();
+
+        console.log(`    📐 Found formulas, extracting ranges...`);
+
+        // Load all area properties in one batch
+        for (let i = 0; i < areas.items.length; i++) {
+          const area = areas.items[i];
+          area.load("address, rowCount, columnCount");
+        }
+        
+        await context.sync();
+
+        let totalFormulaCount = 0;
+        for (let i = 0; i < areas.items.length; i++) {
+          const area = areas.items[i];
+          const rangeAddress = area.address.split('!')[1] || area.address;
+          sheetData.formulaRanges.push(rangeAddress);
+          totalFormulaCount += area.rowCount * area.columnCount;
+        }
+
+        sheetData.formulaCount = totalFormulaCount;
+        console.log(`    ✓ Found ${totalFormulaCount} formulas in ${sheetData.formulaRanges.length} range(s)`);
+
+      } catch (error) {
+        sheetData.hasFormulas = false;
+        console.log(`    ℹ️ No formulas found in ${sheet.name}`);
+      }
+    }
+
+    console.log(`    ✓ Sheet processed: ${sheet.name} (${sheetData.rowCount}x${sheetData.columnCount})`);
+    return sheetData;
+
+  } catch (error) {
+    console.error(`    ❌ Error processing sheet ${sheet.name}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Original version: Captures metadata for a single sheet
+ * LEGACY - Use captureSheetMetadataOptimized for better performance
  *
  * @param {Excel.RequestContext} context - Excel request context
  * @param {Excel.Worksheet} sheet - Worksheet to capture
