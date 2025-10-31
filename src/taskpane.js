@@ -27,9 +27,9 @@ import { showClarificationModal } from './ui/clarificationModal.js';
 import { 
     API_BASE_URL,
     checkAPIHealth, 
-    initiateChat, 
-    pollConversation,
-    respondToConversation 
+    getOrCreateConversation,
+    sendMessage,
+    pollAgentRun
 } from './api/apiClient.js';
 
 // Import tool system
@@ -87,7 +87,7 @@ async function initializeApp() {
     document.getElementById('userInput').addEventListener('input', handleInputResize);
 
     // Set up new UI button listeners
-    document.getElementById('historyButton')?.addEventListener('click', handleHistoryClick);
+    document.getElementById('newConversationButton')?.addEventListener('click', handleNewConversation);
     document.getElementById('menuButton')?.addEventListener('click', handleMenuClick);
     document.getElementById('uploadButton')?.addEventListener('click', handleUploadClick);
     document.getElementById('traceDependenciesBtn')?.addEventListener('click', handleTraceDependencies);
@@ -397,11 +397,22 @@ async function checkAPIConnection() {
 }
 
 /**
- * Handle history button click
+ * Handle new conversation button click
+ * Clears the current conversation and starts fresh
  */
-function handleHistoryClick() {
-    console.log('History button clicked - feature to be implemented');
-    // TODO: Implement history feature
+function handleNewConversation() {
+    console.log('🔄 Starting new conversation...');
+    
+    // Clear the stored conversation ID (use correct key!)
+    localStorage.removeItem('warren_conversation_id');
+    
+    // Clear the chat UI (keep it empty until user sends first message)
+    const chatContainer = document.getElementById('chatContainer');
+    if (chatContainer) {
+        chatContainer.innerHTML = '';
+    }
+    
+    console.log('✅ New conversation ready - warren_conversation_id cleared, UI reset');
 }
 
 /**
@@ -490,8 +501,18 @@ async function handleSendMessage() {
             throw new Error(`Invalid payload: ${validation.errors.join(', ')}`);
         }
 
-        // Initiate chat
-        const initResult = await initiateChat(
+        // Get or create conversation
+        const convResult = await getOrCreateConversation();
+        if (!convResult.success) {
+            throw new Error(convResult.error || 'Failed to get conversation');
+        }
+        
+        const conversationId = convResult.conversationId;
+        console.log(`💬 Conversation ID: ${conversationId}`);
+
+        // Send message to conversation
+        const sendResult = await sendMessage(
+            conversationId,
             message, 
             queryPayload,
             (retryCount, maxRetries) => {
@@ -499,16 +520,16 @@ async function handleSendMessage() {
             }
         );
 
-        if (!initResult.success) {
-            throw new Error(initResult.error || 'Failed to initiate chat');
+        if (!sendResult.success) {
+            throw new Error(sendResult.error || 'Failed to send message');
         }
 
-        const conversationId = initResult.conversationId;
-        console.log(`💬 Conversation ID: ${conversationId}`);
+        const agentRunId = sendResult.agentRunId;
+        console.log(`🤖 Agent Run ID: ${agentRunId}`);
 
-        // Poll for conversation completion
-        const pollResult = await pollConversation(
-            conversationId,
+        // Poll for agent run completion
+        const pollResult = await pollAgentRun(
+            agentRunId,
             // Progress callback
             (explanation, elapsed, status) => {
                 updateTypingIndicator(`${explanation} (${elapsed.toFixed(0)}s)`);
@@ -547,14 +568,11 @@ async function handleSendMessage() {
         // Remove typing indicator
         removeTypingIndicator();
 
-        // Add AI response to chat - prioritize 'answer' field if present
-        const displayMessage = result.answer && result.answer !== null && result.answer !== 'null'
-            ? result.answer
-            : result.explanation;
+        // Add AI response to chat
+        // Backend returns answer at top level when status=SUCCESS
+        const displayMessage = result.answer || result.explanation || result.message || 'Task completed';
         
-        if (displayMessage) {
-            addMessageToChat('ai', displayMessage);
-        }
+        addMessageToChat('ai', displayMessage);
 
     } catch (error) {
         console.error('Error processing message:', error);
@@ -564,13 +582,13 @@ async function handleSendMessage() {
         let errorMessage = `Sorry, I encountered an error: ${error.message}`;
         
         // Provide specific guidance for connection errors
-        if (error.message.includes('Failed to initiate chat') || 
+        if (error.message.includes('Failed to') || 
             error.message.includes('Failed to fetch') ||
             error.message.includes('Connection error')) {
             errorMessage += '\n\n⚠️ Cannot reach backend server. Please check:\n' +
-                           '• Backend is running (python backend/main.py)\n' +
-                           '• Ngrok tunnel is active\n' +
-                           '• API_BASE_URL in apiClient.js matches your ngrok URL';
+                           '• BackendV2 is running (cd backendV2 && uvicorn app.main:app)\n' +
+                           '• Ngrok tunnel is active and pointing to port 8000\n' +
+                           '• API_BASE_URL in apiClient.js matches your ngrok URL + /api/v1';
         }
         
         addMessageToChat('ai', errorMessage);
@@ -593,6 +611,15 @@ async function executeFrontendTools(toolCalls) {
     }
 
     console.log(`🔧 Executing ${toolCalls.length} frontend tool(s)`);
+    
+    // Transform backendV2 format to frontend format
+    // Backend sends: { id, tool_name, params, target }
+    // Frontend expects: { tool, params }
+    const transformedToolCalls = toolCalls.map(tc => ({
+        tool: tc.tool_name || tc.tool, // Support both formats
+        params: tc.params,
+        id: tc.id // Keep ID for tracking
+    }));
 
     // List of READ tools that require continuation (execute individually, not batched)
     const READ_TOOLS = [
@@ -607,8 +634,8 @@ async function executeFrontendTools(toolCalls) {
     ];
     
     // Separate READ and WRITE tools
-    const readTools = toolCalls.filter(tc => READ_TOOLS.includes(tc.tool));
-    const writeTools = toolCalls.filter(tc => !READ_TOOLS.includes(tc.tool));
+    const readTools = transformedToolCalls.filter(tc => READ_TOOLS.includes(tc.tool));
+    const writeTools = transformedToolCalls.filter(tc => !READ_TOOLS.includes(tc.tool));
     
     const toolResults = [];
 
@@ -627,8 +654,7 @@ async function executeFrontendTools(toolCalls) {
                 if (result.success) {
                     // Add to results for backend
                     toolResults.push({
-                        tool: toolCall.tool,
-                        params: toolCall.params,
+                        tool_call_id: toolCall.id,
                         result: result.result,
                         success: true
                     });
@@ -658,8 +684,7 @@ async function executeFrontendTools(toolCalls) {
                 } else {
                     // Add error to results for backend (with feedback if available)
                     toolResults.push({
-                        tool: toolCall.tool,
-                        params: toolCall.params,
+                        tool_call_id: toolCall.id,
                         result: null,
                         success: false,
                         error: result.error,
@@ -683,8 +708,7 @@ async function executeFrontendTools(toolCalls) {
             // Add batch-level error for all write tools
             for (const toolCall of writeTools) {
                 toolResults.push({
-                    tool: toolCall.tool,
-                    params: toolCall.params,
+                    tool_call_id: toolCall.id,
                     result: null,
                     success: false,
                     error: `Batch execution failed: ${error.message}`,
@@ -702,8 +726,7 @@ async function executeFrontendTools(toolCalls) {
             if (toolResult.success) {
                 // Store result to send back to backend
                 toolResults.push({
-                    tool: toolCall.tool,
-                    params: toolCall.params,
+                    tool_call_id: toolCall.id,
                     result: toolResult.result,
                     success: true
                 });
@@ -711,8 +734,7 @@ async function executeFrontendTools(toolCalls) {
             } else {
                 addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${toolResult.error}`, true);
                 toolResults.push({
-                    tool: toolCall.tool,
-                    params: toolCall.params,
+                    tool_call_id: toolCall.id,
                     result: null,
                     success: false,
                     error: toolResult.error
@@ -722,8 +744,7 @@ async function executeFrontendTools(toolCalls) {
             console.error(`Tool execution error:`, error);
             addMessageToChat('ai', `⚠️ Failed to execute ${toolCall.tool}`, true);
             toolResults.push({
-                tool: toolCall.tool,
-                params: toolCall.params,
+                tool_call_id: toolCall.id,
                 result: null,
                 success: false,
                 error: error.message,

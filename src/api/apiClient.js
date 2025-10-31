@@ -1,16 +1,17 @@
 /**
- * API Client Module - Simplified for new backend architecture
- * Handles all backend communication with conversation-based chat
+ * API Client Module - BackendV2 Integration
+ * Handles all backend communication with the new multi-agent architecture
+ * Flow: Create Conversation → Send Message → Poll Agent Run → Respond with Tool Results
  */
 
-export const API_BASE_URL = 'https://073185f2ef82.ngrok-free.app/engine';
+export const API_BASE_URL = 'https://f27d29966c3f.ngrok-free.app/api/v1';
 
 /**
  * Check API health status
  */
 export async function checkAPIHealth() {
     try {
-        const response = await fetch(`${API_BASE_URL}/health`, {
+        const response = await fetch(`${API_BASE_URL}/health/live`, {
             headers: {
                 'ngrok-skip-browser-warning': 'true'
             }
@@ -23,34 +24,86 @@ export async function checkAPIHealth() {
 }
 
 /**
- * Initiate a new conversation/chat
+ * Get or create a conversation for the user
+ * For now, we'll use a single conversation per user (stored in localStorage)
  */
-export async function initiateChat(message, queryPayload, onRetry) {
+export async function getOrCreateConversation() {
+    try {
+        // Check if we have a stored conversation ID
+        let conversationId = localStorage.getItem('warren_conversation_id');
+        
+        if (conversationId) {
+            // Verify it still exists
+            const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, {
+                headers: {
+                    'ngrok-skip-browser-warning': 'true'
+                }
+            });
+            
+            if (response.ok) {
+                console.log(`✓ Using existing conversation: ${conversationId}`);
+                return { success: true, conversationId };
+            }
+        }
+        
+        // Create new conversation
+        console.log('📤 Creating new conversation...');
+        const response = await fetch(`${API_BASE_URL}/conversations`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'ngrok-skip-browser-warning': 'true'
+            },
+            body: JSON.stringify({
+                user_id: "1", // String format as expected by schema
+                title: 'Excel Analysis Session'
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to create conversation: HTTP ${response.status}`);
+        }
+
+        const conversation = await response.json();
+        conversationId = conversation.id;
+        
+        // Store for future use
+        localStorage.setItem('warren_conversation_id', conversationId);
+        
+        console.log(`✓ Created new conversation: ${conversationId}`);
+        return { success: true, conversationId };
+
+    } catch (error) {
+        console.error('❌ Failed to get/create conversation:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Send a message to the conversation
+ * Returns the agent_run that was created
+ */
+export async function sendMessage(conversationId, message, queryPayload, onRetry) {
     const maxRetries = 3;
     let retryCount = 0;
-    const idempotencyKey = crypto.randomUUID(); // Generate a unique key for this operation
-    
-    // DEBUG: Add timestamp and stack trace to track duplicate calls
-    const callTimestamp = new Date().toISOString();
-    const callStack = new Error().stack;
-    console.log(`🔍 DEBUG: initiateChat called at ${callTimestamp}`);
-    console.log(`🔍 DEBUG: Call stack:`, callStack);
 
     while (retryCount < maxRetries) {
         try {
-            console.log(`📤 Initiating chat (attempt ${retryCount + 1}/${maxRetries})...`);
-            console.log(`   Idempotency Key: ${idempotencyKey}`);
+            console.log(`📤 Sending message (attempt ${retryCount + 1}/${maxRetries})...`);
 
-            const response = await fetch(`${API_BASE_URL}/chat/initiate`, {
+            const response = await fetch(`${API_BASE_URL}/messages/${conversationId}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'ngrok-skip-browser-warning': 'true',
-                    'Idempotency-Key': idempotencyKey // Send the key in the headers
+                    'ngrok-skip-browser-warning': 'true'
                 },
                 body: JSON.stringify({
-                    query: message,
-                    enhancedPayload: queryPayload
+                    role: 'USER',
+                    content: message,
+                    meta: {
+                        initialContext: queryPayload.initialContext,
+                        userSelection: queryPayload.userSelection
+                    }
                 })
             });
 
@@ -59,21 +112,30 @@ export async function initiateChat(message, queryPayload, onRetry) {
             }
 
             const result = await response.json();
-            const conversationId = result.conversation_id;
+            const agentRunId = result.agent_run?.id;
 
-            console.log(`✓ Chat initiated: ${conversationId}`);
-            console.log(`  Status: ${result.status}`);
+            if (!agentRunId) {
+                throw new Error('No agent_run returned from message');
+            }
+
+            console.log(`✓ Message sent, agent_run created: ${agentRunId}`);
+            console.log(`  Status: ${result.agent_run.status}`);
             
-            return { success: true, conversationId, result };
+            return { 
+                success: true, 
+                agentRunId,
+                message: result.message,
+                agentRun: result.agent_run
+            };
 
         } catch (error) {
             retryCount++;
-            console.error(`❌ Initiate attempt ${retryCount} failed:`, error.message);
+            console.error(`❌ Send message attempt ${retryCount} failed:`, error.message);
 
             if (retryCount >= maxRetries) {
                 return { 
                     success: false, 
-                    error: `Failed to initiate chat after ${maxRetries} attempts: ${error.message}` 
+                    error: `Failed to send message after ${maxRetries} attempts: ${error.message}` 
                 };
             }
 
@@ -89,9 +151,9 @@ export async function initiateChat(message, queryPayload, onRetry) {
 }
 
 /**
- * Poll conversation status
+ * Poll agent run status
  */
-export async function pollConversation(conversationId, onProgress, onClarificationNeeded, onToolExecutionNeeded) {
+export async function pollAgentRun(agentRunId, onProgress, onClarificationNeeded, onToolExecutionNeeded) {
     const pollInterval = 2000; // 2 seconds
     const maxPolls = 300; // 10 minutes
     let pollCount = 0;
@@ -100,7 +162,7 @@ export async function pollConversation(conversationId, onProgress, onClarificati
 
     while (pollCount < maxPolls) {
         try {
-            const response = await fetch(`${API_BASE_URL}/chat/${conversationId}/poll`, {
+            const response = await fetch(`${API_BASE_URL}/agents/${agentRunId}/poll`, {
                 headers: {
                     'ngrok-skip-browser-warning': 'true'
                 }
@@ -116,21 +178,31 @@ export async function pollConversation(conversationId, onProgress, onClarificati
             // Calculate elapsed time (estimate based on poll count)
             const elapsed = pollCount * (pollInterval / 1000);
             
-            // Update progress
-            if (onProgress && data.message) {
-                onProgress(data.message.explanation || 'Processing...', elapsed, data.status);
+            // Update progress with current status
+            if (onProgress) {
+                const statusMessage = data.status === 'RUNNING' ? 'Processing...' : data.status;
+                onProgress(statusMessage, elapsed, data.status);
             }
 
-            console.log(`📊 Poll ${pollCount + 1}: ${data.status} - ${data.message?.explanation || 'Processing...'}`);
+            console.log(`📊 Poll ${pollCount + 1}: ${data.status}`);
 
             // Handle different statuses
-            if (data.status === 'complete') {
-                console.log(`✓ Chat completed`);
-                return { success: true, result: data.message };
+            if (data.status === 'SUCCESS') {
+                console.log(`✓ Agent run completed successfully`);
+                // Backend returns answer at top level, not in final_output
+                return { success: true, result: data };
             }
 
-            if (data.status === 'needs_clarification') {
-                console.log(`⏸️ Chat paused for clarification`);
+            if (data.status === 'ERROR') {
+                console.log(`❌ Agent run failed`);
+                return { 
+                    success: false, 
+                    error: data.error_message || 'Agent run failed'
+                };
+            }
+
+            if (data.status === 'NEEDS_CLARIFICATION') {
+                console.log(`⏸️ Agent needs clarification`);
                 
                 if (!onClarificationNeeded) {
                     return { 
@@ -139,17 +211,17 @@ export async function pollConversation(conversationId, onProgress, onClarificati
                     };
                 }
 
-                // Extract question from askUser tool
-                const question = data.message?.toolCalls?.[0]?.params?.question || "I need more information to proceed.";
+                // Extract question from output_data
+                const question = data.output_data?.question || "I need more information to proceed.";
                 
-                const answer = await onClarificationNeeded(question, data.message);
+                const answer = await onClarificationNeeded(question, data);
                 
                 if (!answer) {
-                    return { success: false, error: 'Chat cancelled by user' };
+                    return { success: false, error: 'Cancelled by user' };
                 }
 
                 // Submit answer and continue polling
-                const submitSuccess = await respondToConversation(conversationId, answer);
+                const submitSuccess = await respondToAgentRun(agentRunId, null, answer);
                 if (!submitSuccess) {
                     return { success: false, error: 'Failed to submit clarification' };
                 }
@@ -160,7 +232,7 @@ export async function pollConversation(conversationId, onProgress, onClarificati
                 continue;
             }
 
-            if (data.status === 'needs_tool_execution') {
+            if (data.status === 'NEEDS_TOOL_EXECUTION') {
                 console.log(`🔧 Frontend tools needed`);
                 
                 if (!onToolExecutionNeeded) {
@@ -171,23 +243,13 @@ export async function pollConversation(conversationId, onProgress, onClarificati
                 }
 
                 // Execute tools and get ALL results (READ and WRITE, successes and failures)
-                const toolResults = await onToolExecutionNeeded(data.message.toolCalls || []);
+                const toolCalls = data.tool_calls || [];
+                const toolResults = await onToolExecutionNeeded(toolCalls);
                 
-                // Always send results back to backend (even if empty or write-only)
-                // This allows the agent to see failures and retry/fix them
-                const resultsSummary = {
-                    executed: toolResults.length,
-                    successful: toolResults.filter(r => r.success).length,
-                    failed: toolResults.filter(r => !r.success).length,
-                    results: toolResults
-                };
+                // Always send results back to backend
+                console.log(`📊 Tool execution complete: ${toolResults.length} results`);
                 
-                console.log(`📊 Tool execution summary: ${resultsSummary.successful} succeeded, ${resultsSummary.failed} failed`);
-                
-                const submitSuccess = await respondToConversation(
-                    conversationId, 
-                    JSON.stringify(resultsSummary, null, 2)
-                );
+                const submitSuccess = await respondToAgentRun(agentRunId, toolResults, null);
                 
                 if (!submitSuccess) {
                     return { success: false, error: 'Failed to submit tool results' };
@@ -199,14 +261,7 @@ export async function pollConversation(conversationId, onProgress, onClarificati
                 continue;
             }
 
-            if (data.status === 'failed') {
-                return { 
-                    success: false, 
-                    error: data.error || 'Chat processing failed' 
-                };
-            }
-
-            // Still processing (status: "processing")
+            // Still processing (RUNNING or PENDING)
             await sleep(pollInterval);
             pollCount++;
 
@@ -236,29 +291,39 @@ export async function pollConversation(conversationId, onProgress, onClarificati
 
     return { 
         success: false, 
-        error: 'Chat timeout - exceeded maximum wait time (10 minutes)' 
+        error: 'Timeout - exceeded maximum wait time (10 minutes)' 
     };
 }
 
 /**
- * Respond to conversation (clarification answer OR tool results)
+ * Respond to agent run (tool results OR clarification answer)
  */
-export async function respondToConversation(conversationId, content) {
+export async function respondToAgentRun(agentRunId, toolResults = null, clarificationAnswer = null) {
     try {
-        const response = await fetch(`${API_BASE_URL}/chat/${conversationId}/respond`, {
+        const body = {};
+        
+        if (toolResults) {
+            body.tool_results = toolResults;
+        }
+        
+        if (clarificationAnswer) {
+            body.clarification_answer = clarificationAnswer;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/agents/${agentRunId}/respond`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'ngrok-skip-browser-warning': 'true'
             },
-            body: JSON.stringify({ content })
+            body: JSON.stringify(body)
         });
 
         if (!response.ok) {
             throw new Error(`Failed to respond: HTTP ${response.status}`);
         }
 
-        console.log('✓ Response submitted, resuming chat...');
+        console.log('✓ Response submitted, agent resuming...');
         return true;
 
     } catch (error) {
