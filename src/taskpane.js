@@ -654,6 +654,8 @@ async function executeFrontendTools(toolCalls) {
                 if (result.success) {
                     // Add to results for backend
                     toolResults.push({
+                        tool: toolCall.tool,  // Add tool name for LLM context
+                        params: toolCall.params,  // Add params for LLM context
                         tool_call_id: toolCall.id,
                         result: result.result,
                         success: true
@@ -684,6 +686,8 @@ async function executeFrontendTools(toolCalls) {
                 } else {
                     // Add error to results for backend (with feedback if available)
                     toolResults.push({
+                        tool: toolCall.tool,  // Add tool name for LLM context
+                        params: toolCall.params,  // Add params for LLM context
                         tool_call_id: toolCall.id,
                         result: null,
                         success: false,
@@ -708,6 +712,8 @@ async function executeFrontendTools(toolCalls) {
             // Add batch-level error for all write tools
             for (const toolCall of writeTools) {
                 toolResults.push({
+                    tool: toolCall.tool,  // Add tool name for LLM context
+                    params: toolCall.params,  // Add params for LLM context
                     tool_call_id: toolCall.id,
                     result: null,
                     success: false,
@@ -726,6 +732,8 @@ async function executeFrontendTools(toolCalls) {
             if (toolResult.success) {
                 // Store result to send back to backend
                 toolResults.push({
+                    tool: toolCall.tool,  // Add tool name for LLM context
+                    params: toolCall.params,  // Add params for LLM context
                     tool_call_id: toolCall.id,
                     result: toolResult.result,
                     success: true
@@ -734,6 +742,8 @@ async function executeFrontendTools(toolCalls) {
             } else {
                 addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${toolResult.error}`, true);
                 toolResults.push({
+                    tool: toolCall.tool,  // Add tool name for LLM context
+                    params: toolCall.params,  // Add params for LLM context
                     tool_call_id: toolCall.id,
                     result: null,
                     success: false,
@@ -744,6 +754,8 @@ async function executeFrontendTools(toolCalls) {
             console.error(`Tool execution error:`, error);
             addMessageToChat('ai', `⚠️ Failed to execute ${toolCall.tool}`, true);
             toolResults.push({
+                tool: toolCall.tool,  // Add tool name for LLM context
+                params: toolCall.params,  // Add params for LLM context
                 tool_call_id: toolCall.id,
                 result: null,
                 success: false,

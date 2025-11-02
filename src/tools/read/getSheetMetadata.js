@@ -577,14 +577,26 @@ export async function execute(params) {
       for (let i = 0; i < charts.items.length; i++) {
         const chart = charts.items[i];
         chart.load("name, chartType");
-        const chartRange = chart.getDataRange();
-        chartRange.load("address");
         await context.sync();
+
+        let dataRange = null;
+        try {
+          // Try to get data range if supported (may not be available in all Excel contexts)
+          if (typeof chart.getDataRange === 'function') {
+            const chartRange = chart.getDataRange();
+            chartRange.load("address");
+            await context.sync();
+            dataRange = chartRange.address.split('!')[1] || chartRange.address;
+          }
+        } catch (e) {
+          // Data range not available, skip it
+          console.log(`    ⚠️ Couldn't get data range for chart "${chart.name}"`);
+        }
 
         metadata.charts.push({
           name: chart.name,
           type: chart.chartType,
-          dataRange: chartRange.address.split('!')[1] || chartRange.address
+          dataRange: dataRange
         });
       }
       console.log(`  ✓ Found ${metadata.charts.length} chart(s)`);
