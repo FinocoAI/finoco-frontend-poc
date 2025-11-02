@@ -40,14 +40,16 @@ export async function executeBatchedTools(toolCalls) {
   console.log(`🔧 Executing ${toolCalls.length} frontend tools in BATCHED mode`);
 
   // Sort tools by priority to ensure logical execution order
-  const sortedToolCalls = [...toolCalls].sort((a, b) => {
-    const priorityA = TOOL_PRIORITY[a.tool] || 999;
-    const priorityB = TOOL_PRIORITY[b.tool] || 999;
-    return priorityA - priorityB;
-  });
+  // IMPORTANT: Preserve original index so we can return results in ORIGINAL order
+  const sortedToolCalls = toolCalls.map((call, originalIndex) => ({ ...call, originalIndex }))
+    .sort((a, b) => {
+      const priorityA = TOOL_PRIORITY[a.tool] || 999;
+      const priorityB = TOOL_PRIORITY[b.tool] || 999;
+      return priorityA - priorityB;
+    });
 
   return Excel.run(async (context) => {
-    const results = [];
+    const resultsMap = new Map(); // Map results by original index
     const worksheets = new Map(); // Cache worksheet references
     let needsRecalculation = false;
 
@@ -73,12 +75,13 @@ export async function executeBatchedTools(toolCalls) {
 
       // PHASE 1: Execute all tool operations (no sync yet)
       for (let i = 0; i < sortedToolCalls.length; i++) {
-        const { tool, params } = sortedToolCalls[i];
-        console.log(`  [${i + 1}/${sortedToolCalls.length}] ${tool}`);
+        const { tool, params, originalIndex } = sortedToolCalls[i];
+        console.log(`  [${i + 1}/${sortedToolCalls.length}] ${tool} (original position: ${originalIndex})`);
 
         try {
           const result = await executeBatchedTool(context, tool, params, worksheets);
-          results.push({
+          // Store result by ORIGINAL index to preserve agent's order
+          resultsMap.set(originalIndex, {
             success: true,
             tool: tool,
             result: result,
@@ -90,7 +93,8 @@ export async function executeBatchedTools(toolCalls) {
           }
         } catch (error) {
           console.error(`  ❌ ${tool} failed:`, error.message || error);
-          results.push({
+          // Store error by ORIGINAL index
+          resultsMap.set(originalIndex, {
             success: false,
             tool: tool,
             params: params,
@@ -116,6 +120,12 @@ export async function executeBatchedTools(toolCalls) {
       }
 
       console.log('  ✅ Batch execution complete');
+
+      // Convert resultsMap back to array in ORIGINAL order
+      const results = [];
+      for (let i = 0; i < toolCalls.length; i++) {
+        results.push(resultsMap.get(i));
+      }
 
       return results;
 

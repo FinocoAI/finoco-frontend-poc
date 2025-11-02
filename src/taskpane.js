@@ -600,14 +600,20 @@ async function handleSendMessage() {
 
 /**
  * Execute frontend tool calls returned by backend
- * Returns array of ALL tool results (READ and WRITE, successes and failures) to send back to backend
+ * Returns object with tool_results and updated_context (captured after execution)
+ * 
+ * IMPORTANT: Tool results INCLUDE params for verification - this helps detect bugs like result misalignment
+ * CRITICAL: Returns updated Excel context so backend has fresh state after tool execution
  * 
  * USES BATCHED EXECUTION: All WRITE tools are executed in a single Excel.run() context
  * for maximum efficiency and reliability. READ tools are executed sequentially.
  */
 async function executeFrontendTools(toolCalls) {
     if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) {
-        return [];
+        return {
+            tool_results: [],
+            updated_context: null
+        };
     }
 
     console.log(`🔧 Executing ${toolCalls.length} frontend tool(s)`);
@@ -652,10 +658,10 @@ async function executeFrontendTools(toolCalls) {
                 const toolCall = writeTools[i];
                 
                 if (result.success) {
-                    // Add to results for backend
+                    // Add to results for backend (params included for verification)
                     toolResults.push({
-                        tool: toolCall.tool,  // Add tool name for LLM context
-                        params: toolCall.params,  // Add params for LLM context
+                        tool: toolCall.tool,
+                        params: toolCall.params,  // Keep for bug detection
                         tool_call_id: toolCall.id,
                         result: result.result,
                         success: true
@@ -684,10 +690,10 @@ async function executeFrontendTools(toolCalls) {
                         addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
                     }
                 } else {
-                    // Add error to results for backend (with feedback if available)
+                    // Add error to results for backend (params included for verification)
                     toolResults.push({
-                        tool: toolCall.tool,  // Add tool name for LLM context
-                        params: toolCall.params,  // Add params for LLM context
+                        tool: toolCall.tool,
+                        params: toolCall.params,  // Keep for bug detection
                         tool_call_id: toolCall.id,
                         result: null,
                         success: false,
@@ -709,11 +715,11 @@ async function executeFrontendTools(toolCalls) {
             console.error(`Batch execution error:`, error);
             addMessageToChat('ai', `⚠️ Batch execution failed: ${error.message}`, true);
             
-            // Add batch-level error for all write tools
+            // Add batch-level error for all write tools (params included for verification)
             for (const toolCall of writeTools) {
                 toolResults.push({
-                    tool: toolCall.tool,  // Add tool name for LLM context
-                    params: toolCall.params,  // Add params for LLM context
+                    tool: toolCall.tool,
+                    params: toolCall.params,  // Keep for bug detection
                     tool_call_id: toolCall.id,
                     result: null,
                     success: false,
@@ -730,10 +736,10 @@ async function executeFrontendTools(toolCalls) {
             const toolResult = await executeTool(toolCall.tool, toolCall.params);
 
             if (toolResult.success) {
-                // Store result to send back to backend
+                // Store result to send back to backend (params included for verification)
                 toolResults.push({
-                    tool: toolCall.tool,  // Add tool name for LLM context
-                    params: toolCall.params,  // Add params for LLM context
+                    tool: toolCall.tool,
+                    params: toolCall.params,  // Keep for bug detection
                     tool_call_id: toolCall.id,
                     result: toolResult.result,
                     success: true
@@ -742,8 +748,8 @@ async function executeFrontendTools(toolCalls) {
             } else {
                 addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${toolResult.error}`, true);
                 toolResults.push({
-                    tool: toolCall.tool,  // Add tool name for LLM context
-                    params: toolCall.params,  // Add params for LLM context
+                    tool: toolCall.tool,
+                    params: toolCall.params,  // Keep for bug detection
                     tool_call_id: toolCall.id,
                     result: null,
                     success: false,
@@ -754,8 +760,8 @@ async function executeFrontendTools(toolCalls) {
             console.error(`Tool execution error:`, error);
             addMessageToChat('ai', `⚠️ Failed to execute ${toolCall.tool}`, true);
             toolResults.push({
-                tool: toolCall.tool,  // Add tool name for LLM context
-                params: toolCall.params,  // Add params for LLM context
+                tool: toolCall.tool,
+                params: toolCall.params,  // Keep for bug detection
                 tool_call_id: toolCall.id,
                 result: null,
                 success: false,
@@ -765,7 +771,26 @@ async function executeFrontendTools(toolCalls) {
         }
     }
 
-    // Return ALL results (READ and WRITE, successes and failures)
-    console.log(`📋 Returning ${toolResults.length} tool result(s) to backend`);
-    return toolResults;
+    // Capture updated Excel context after all tools executed
+    console.log(`📸 Capturing updated Excel context after tool execution...`);
+    let updatedContext = null;
+    try {
+        await updateExcelContext();
+        await updateEnhancedContext();
+        updatedContext = {
+            initialContext: enhancedContext.initialContext,
+            userSelection: enhancedContext.userSelection
+        };
+        console.log(`✓ Updated context captured: ${updatedContext.initialContext.sheets?.length || 0} sheets`);
+    } catch (error) {
+        console.error(`⚠️ Failed to capture updated context:`, error);
+        // Continue without updated context - backend will use stale context with warning
+    }
+
+    // Return tool results AND updated context
+    console.log(`📋 Returning ${toolResults.length} tool result(s) with updated context to backend`);
+    return {
+        tool_results: toolResults,
+        updated_context: updatedContext
+    };
 }

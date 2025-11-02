@@ -242,14 +242,18 @@ export async function pollAgentRun(agentRunId, onProgress, onClarificationNeeded
                     };
                 }
 
-                // Execute tools and get ALL results (READ and WRITE, successes and failures)
+                // Execute tools and get results + updated context
                 const toolCalls = data.tool_calls || [];
-                const toolResults = await onToolExecutionNeeded(toolCalls);
+                const executionResult = await onToolExecutionNeeded(toolCalls);
                 
-                // Always send results back to backend
-                console.log(`📊 Tool execution complete: ${toolResults.length} results`);
+                // Extract tool results and updated context
+                const toolResults = executionResult.tool_results || [];
+                const updatedContext = executionResult.updated_context || null;
                 
-                const submitSuccess = await respondToAgentRun(agentRunId, toolResults, null);
+                // Always send results back to backend (with updated context)
+                console.log(`📊 Tool execution complete: ${toolResults.length} results, context updated: ${updatedContext !== null}`);
+                
+                const submitSuccess = await respondToAgentRun(agentRunId, toolResults, null, updatedContext);
                 
                 if (!submitSuccess) {
                     return { success: false, error: 'Failed to submit tool results' };
@@ -297,8 +301,12 @@ export async function pollAgentRun(agentRunId, onProgress, onClarificationNeeded
 
 /**
  * Respond to agent run (tool results OR clarification answer)
+ * @param {string} agentRunId - The agent run ID
+ * @param {Array} toolResults - Tool execution results (if any)
+ * @param {string} clarificationAnswer - Clarification answer (if any)
+ * @param {Object} updatedContext - Updated Excel context after tool execution (if any)
  */
-export async function respondToAgentRun(agentRunId, toolResults = null, clarificationAnswer = null) {
+export async function respondToAgentRun(agentRunId, toolResults = null, clarificationAnswer = null, updatedContext = null) {
     try {
         const body = {};
         
@@ -308,6 +316,11 @@ export async function respondToAgentRun(agentRunId, toolResults = null, clarific
         
         if (clarificationAnswer) {
             body.clarification_answer = clarificationAnswer;
+        }
+        
+        if (updatedContext) {
+            body.updated_context = updatedContext;
+            console.log(`📸 Including updated context with ${updatedContext.initialContext?.sheets?.length || 0} sheets`);
         }
 
         const response = await fetch(`${API_BASE_URL}/agents/${agentRunId}/respond`, {
