@@ -539,8 +539,19 @@ async function handleSendMessage() {
                 // Remove typing indicator while waiting
                 removeTypingIndicator();
                 
-                // Show question in chat
-                addMessageToChat('ai', question);
+                // Show question in chat (display title for structured forms, full text for simple questions)
+                let displayText = question;
+                try {
+                    if (typeof question === 'string' && question.trim().startsWith('{')) {
+                        const parsed = JSON.parse(question);
+                        if (parsed.title) {
+                            displayText = parsed.title;
+                        }
+                    }
+                } catch (e) {
+                    // Not JSON, use as-is
+                }
+                addMessageToChat('ai', displayText);
                 
                 // Get user answer
                 const userAnswer = await showClarificationModal(question);
