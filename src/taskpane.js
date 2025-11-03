@@ -602,7 +602,8 @@ async function handleSendMessage() {
  * Execute frontend tool calls returned by backend
  * Returns object with tool_results and updated_context (captured after execution)
  * 
- * IMPORTANT: Tool results INCLUDE params for verification - this helps detect bugs like result misalignment
+ * EFFICIENCY: Tool results EXCLUDE params on success (agent already has them in context)
+ * On failure, params ARE included to help with debugging
  * CRITICAL: Returns updated Excel context so backend has fresh state after tool execution
  * 
  * USES BATCHED EXECUTION: All WRITE tools are executed in a single Excel.run() context
@@ -658,10 +659,9 @@ async function executeFrontendTools(toolCalls) {
                 const toolCall = writeTools[i];
                 
                 if (result.success) {
-                    // Add to results for backend (params included for verification)
+                    // SUCCESS: Only send result, not params (agent already has params in context)
                     toolResults.push({
                         tool: toolCall.tool,
-                        params: toolCall.params,  // Keep for bug detection
                         tool_call_id: toolCall.id,
                         result: result.result,
                         success: true
@@ -690,10 +690,10 @@ async function executeFrontendTools(toolCalls) {
                         addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
                     }
                 } else {
-                    // Add error to results for backend (params included for verification)
+                    // FAILURE: Include params for debugging
                     toolResults.push({
                         tool: toolCall.tool,
-                        params: toolCall.params,  // Keep for bug detection
+                        params: toolCall.params,  // Keep for debugging failures
                         tool_call_id: toolCall.id,
                         result: null,
                         success: false,
@@ -715,11 +715,11 @@ async function executeFrontendTools(toolCalls) {
             console.error(`Batch execution error:`, error);
             addMessageToChat('ai', `⚠️ Batch execution failed: ${error.message}`, true);
             
-            // Add batch-level error for all write tools (params included for verification)
+            // FAILURE: Add batch-level error for all write tools (params included for debugging)
             for (const toolCall of writeTools) {
                 toolResults.push({
                     tool: toolCall.tool,
-                    params: toolCall.params,  // Keep for bug detection
+                    params: toolCall.params,  // Keep for debugging failures
                     tool_call_id: toolCall.id,
                     result: null,
                     success: false,
@@ -736,10 +736,9 @@ async function executeFrontendTools(toolCalls) {
             const toolResult = await executeTool(toolCall.tool, toolCall.params);
 
             if (toolResult.success) {
-                // Store result to send back to backend (params included for verification)
+                // SUCCESS: Only send result, not params (agent already has params in context)
                 toolResults.push({
                     tool: toolCall.tool,
-                    params: toolCall.params,  // Keep for bug detection
                     tool_call_id: toolCall.id,
                     result: toolResult.result,
                     success: true
@@ -747,9 +746,10 @@ async function executeFrontendTools(toolCalls) {
                 addMessageToChat('ai', `✓ ${toolCall.tool} completed`, true);
             } else {
                 addMessageToChat('ai', `⚠️ ${toolCall.tool} failed: ${toolResult.error}`, true);
+                // FAILURE: Include params for debugging
                 toolResults.push({
                     tool: toolCall.tool,
-                    params: toolCall.params,  // Keep for bug detection
+                    params: toolCall.params,  // Keep for debugging failures
                     tool_call_id: toolCall.id,
                     result: null,
                     success: false,
@@ -759,9 +759,10 @@ async function executeFrontendTools(toolCalls) {
         } catch (error) {
             console.error(`Tool execution error:`, error);
             addMessageToChat('ai', `⚠️ Failed to execute ${toolCall.tool}`, true);
+            // FAILURE: Include params for debugging
             toolResults.push({
                 tool: toolCall.tool,
-                params: toolCall.params,  // Keep for bug detection
+                params: toolCall.params,  // Keep for debugging failures
                 tool_call_id: toolCall.id,
                 result: null,
                 success: false,
