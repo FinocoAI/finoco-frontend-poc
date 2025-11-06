@@ -4,7 +4,7 @@
  * Flow: Create Conversation → Send Message → Poll Agent Run → Respond with Tool Results
  */
 
-export const API_BASE_URL = 'https://f27d29966c3f.ngrok-free.app/api/v1';
+export const API_BASE_URL = 'https://667df4e1a782.ngrok-free.app/api/v1';
 
 /**
  * Check API health status
@@ -24,16 +24,81 @@ export async function checkAPIHealth() {
 }
 
 /**
- * Get or create a conversation for the user
- * For now, we'll use a single conversation per user (stored in localStorage)
+ * Get unique identifier for current workbook
+ * This ensures each workbook has its own conversation (prevents context mixing)
+ */
+async function getWorkbookIdentifier() {
+    try {
+        return await Excel.run(async (context) => {
+            const workbook = context.workbook;
+            workbook.load('name');
+            await context.sync();
+            
+            const workbookName = workbook.name;
+            
+            // Create a stable session ID for THIS workbook instance
+            // Use sessionStorage so each browser tab/window gets unique ID
+            const sessionKey = `warren_wb_session_${workbookName}`;
+            let sessionId = sessionStorage.getItem(sessionKey);
+            
+            if (!sessionId) {
+                sessionId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                sessionStorage.setItem(sessionKey, sessionId);
+                console.log(`📝 New workbook session created: ${sessionId}`);
+            }
+            
+            // Return unique identifier: sanitized workbook name + session ID
+            const sanitizedName = workbookName.replace(/[^a-zA-Z0-9]/g, '_');
+            const workbookId = `${sanitizedName}_${sessionId}`;
+            return workbookId;
+        });
+    } catch (error) {
+        console.error('Failed to get workbook identifier:', error);
+        // Fallback: use timestamp-based ID
+        return `fallback_${Date.now()}`;
+    }
+}
+
+/**
+ * Helper: Get current workbook name
+ */
+async function getWorkbookName() {
+    try {
+        return await Excel.run(async (context) => {
+            const workbook = context.workbook;
+            workbook.load('name');
+            await context.sync();
+            return workbook.name;
+        });
+    } catch (error) {
+        console.error('Failed to get workbook name:', error);
+        return 'Unknown Workbook';
+    }
+}
+
+/**
+ * Get or create a conversation for THIS specific workbook
+ * Each workbook gets its own conversation stored in localStorage
+ * This prevents context contamination when multiple Excel files are open
  */
 export async function getOrCreateConversation() {
     try {
-        // Check if we have a stored conversation ID
-        let conversationId = localStorage.getItem('warren_conversation_id');
+        // Step 1: Identify WHICH workbook we're in
+        const workbookId = await getWorkbookIdentifier();
+        const workbookName = await getWorkbookName();
         
+        // Step 2: Use workbook-specific localStorage key
+        const storageKey = `warren_conversation_${workbookId}`;
+        let conversationId = localStorage.getItem(storageKey);
+        
+        console.log(`📂 Workbook: ${workbookName}`);
+        console.log(`🔑 Workbook ID: ${workbookId}`);
+        console.log(`💾 Storage key: ${storageKey}`);
+        
+        // Step 3: Check if conversation exists on backend
         if (conversationId) {
-            // Verify it still exists
+            console.log(`🔍 Found stored conversation: ${conversationId}, verifying...`);
+            
             const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, {
                 headers: {
                     'ngrok-skip-browser-warning': 'true'
@@ -41,13 +106,26 @@ export async function getOrCreateConversation() {
             });
             
             if (response.ok) {
+                const conv = await response.json();
                 console.log(`✓ Using existing conversation: ${conversationId}`);
-                return { success: true, conversationId };
+                console.log(`  📨 Messages: ${conv.message_count || 0}`);
+                return { 
+                    success: true, 
+                    conversationId,
+                    workbookId,
+                    workbookName,
+                    isExisting: true
+                };
+            } else {
+                console.log(`⚠️ Conversation ${conversationId} not found on backend, creating new one`);
+                localStorage.removeItem(storageKey);
+                conversationId = null;
             }
         }
         
-        // Create new conversation
-        console.log('📤 Creating new conversation...');
+        // Step 4: Create new conversation via backend API
+        console.log(`📤 Creating new conversation for: ${workbookName}`);
+        
         const response = await fetch(`${API_BASE_URL}/conversations`, {
             method: 'POST',
             headers: {
@@ -55,8 +133,13 @@ export async function getOrCreateConversation() {
                 'ngrok-skip-browser-warning': 'true'
             },
             body: JSON.stringify({
-                user_id: "1", // String format as expected by schema
-                title: 'Excel Analysis Session'
+                user_id: "1",
+                title: "Untitled Conversation",  // Will be auto-updated from first user message
+                meta: {
+                    workbookName: workbookName,
+                    workbookId: workbookId,
+                    createdAt: new Date().toISOString()
+                }
             })
         });
 
@@ -67,14 +150,45 @@ export async function getOrCreateConversation() {
         const conversation = await response.json();
         conversationId = conversation.id;
         
-        // Store for future use
-        localStorage.setItem('warren_conversation_id', conversationId);
+        // Step 5: Store in workbook-specific key
+        localStorage.setItem(storageKey, conversationId);
         
         console.log(`✓ Created new conversation: ${conversationId}`);
-        return { success: true, conversationId };
+        console.log(`  💾 Stored in: ${storageKey}`);
+        
+        return { 
+            success: true, 
+            conversationId,
+            workbookId,
+            workbookName,
+            isExisting: false
+        };
 
     } catch (error) {
         console.error('❌ Failed to get/create conversation:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Clear conversation for current workbook (for "New" button)
+ * Only clears the conversation for THIS workbook, not others
+ */
+export async function clearCurrentConversation() {
+    try {
+        const workbookId = await getWorkbookIdentifier();
+        const storageKey = `warren_conversation_${workbookId}`;
+        
+        const oldConversationId = localStorage.getItem(storageKey);
+        localStorage.removeItem(storageKey);
+        
+        console.log(`✅ Cleared conversation for current workbook`);
+        console.log(`  🔑 Workbook ID: ${workbookId}`);
+        console.log(`  🗑️ Removed conversation: ${oldConversationId}`);
+        
+        return { success: true, workbookId };
+    } catch (error) {
+        console.error('Failed to clear conversation:', error);
         return { success: false, error: error.message };
     }
 }
@@ -90,6 +204,8 @@ export async function sendMessage(conversationId, message, queryPayload, onRetry
     while (retryCount < maxRetries) {
         try {
             console.log(`📤 Sending message (attempt ${retryCount + 1}/${maxRetries})...`);
+            console.log(`  💬 Conversation: ${conversationId}`);
+            console.log(`  📝 Message: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`);
 
             const response = await fetch(`${API_BASE_URL}/messages/${conversationId}`, {
                 method: 'POST',
@@ -118,12 +234,15 @@ export async function sendMessage(conversationId, message, queryPayload, onRetry
                 throw new Error('No agent_run returned from message');
             }
 
-            console.log(`✓ Message sent, agent_run created: ${agentRunId}`);
-            console.log(`  Status: ${result.agent_run.status}`);
+            console.log(`✓ Message sent successfully`);
+            console.log(`  🤖 Agent Run ID: ${agentRunId}`);
+            console.log(`  💬 Conversation ID: ${conversationId}`);
+            console.log(`  📊 Initial Status: ${result.agent_run.status}`);
             
             return { 
                 success: true, 
                 agentRunId,
+                conversationId,
                 message: result.message,
                 agentRun: result.agent_run
             };
@@ -160,6 +279,8 @@ export async function pollAgentRun(agentRunId, onProgress, onClarificationNeeded
     let consecutiveErrors = 0;
     const maxConsecutiveErrors = 5;
 
+    console.log(`🔄 Starting to poll agent run: ${agentRunId}`);
+
     while (pollCount < maxPolls) {
         try {
             const response = await fetch(`${API_BASE_URL}/agents/${agentRunId}/poll`, {
@@ -184,7 +305,7 @@ export async function pollAgentRun(agentRunId, onProgress, onClarificationNeeded
                 onProgress(statusMessage, elapsed, data.status);
             }
 
-            console.log(`📊 Poll ${pollCount + 1}: ${data.status}`);
+            console.log(`📊 Poll ${pollCount + 1} [${agentRunId.substring(0, 8)}...]: ${data.status}`);
 
             // Handle different statuses
             if (data.status === 'SUCCESS') {
@@ -342,6 +463,111 @@ export async function respondToAgentRun(agentRunId, toolResults = null, clarific
     } catch (error) {
         console.error('Failed to respond:', error);
         return false;
+    }
+}
+
+/**
+ * Upload a file (with optional ToC JSON) to a conversation
+ * @param {string} conversationId - Conversation ID
+ * @param {File} file - Main file (PDF, Excel, etc)
+ * @param {File} tocFile - Optional ToC JSON file
+ */
+export async function uploadFile(conversationId, file, tocFile = null) {
+    try {
+        console.log(`📤 Uploading file: ${file.name}`);
+        
+        const formData = new FormData();
+        formData.append('conversation_id', conversationId);
+        formData.append('file', file);
+        
+        if (tocFile) {
+            console.log(`📄 Including ToC file: ${tocFile.name}`);
+            formData.append('toc_file', tocFile);
+        }
+        
+        const response = await fetch(`${API_BASE_URL}/files/upload`, {
+            method: 'POST',
+            headers: {
+                'ngrok-skip-browser-warning': 'true'
+            },
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || `Upload failed: HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log(`✓ File uploaded: ${result.id}`);
+        console.log(`  File name: ${result.file_name}`);
+        console.log(`  ToC provided: ${result.toc_provided}`);
+        
+        return { success: true, file: result };
+        
+    } catch (error) {
+        console.error('❌ File upload failed:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Get file info for a conversation
+ * @param {string} conversationId - Conversation ID
+ */
+export async function getConversationFile(conversationId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/files/conversation/${conversationId}`, {
+            headers: {
+                'ngrok-skip-browser-warning': 'true'
+            }
+        });
+        
+        if (response.status === 404) {
+            return { success: true, file: null }; // No file uploaded yet
+        }
+        
+        if (!response.ok) {
+            throw new Error(`Failed to get file: HTTP ${response.status}`);
+        }
+        
+        const file = await response.json();
+        return { success: true, file };
+        
+    } catch (error) {
+        console.error('❌ Failed to get file:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Delete a file by ID
+ * @param {string} fileId - File ID to delete
+ */
+export async function deleteFile(fileId) {
+    try {
+        console.log(`🗑️ Deleting file: ${fileId}`);
+        
+        const response = await fetch(`${API_BASE_URL}/files/${fileId}`, {
+            method: 'DELETE',
+            headers: {
+                'ngrok-skip-browser-warning': 'true'
+            }
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || `Delete failed: HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        console.log(`✓ File deleted: ${result.file_id}`);
+        
+        return { success: true, result };
+        
+    } catch (error) {
+        console.error('❌ File deletion failed:', error);
+        return { success: false, error: error.message };
     }
 }
 

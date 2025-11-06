@@ -22,12 +22,14 @@ import {
 } from './ui/chatUI.js';
 import { updateAPIStatus } from './ui/contextUI.js';
 import { showClarificationModal } from './ui/clarificationModal.js';
+import { initializeFileUpload } from './ui/fileUploadUI.js';
 
 // Import API client
 import { 
     API_BASE_URL,
     checkAPIHealth, 
     getOrCreateConversation,
+    clearCurrentConversation,
     sendMessage,
     pollAgentRun
 } from './api/apiClient.js';
@@ -89,7 +91,7 @@ async function initializeApp() {
     // Set up new UI button listeners
     document.getElementById('newConversationButton')?.addEventListener('click', handleNewConversation);
     document.getElementById('menuButton')?.addEventListener('click', handleMenuClick);
-    document.getElementById('uploadButton')?.addEventListener('click', handleUploadClick);
+    // Upload button is handled by initializeFileUpload() after conversation is created
     document.getElementById('traceDependenciesBtn')?.addEventListener('click', handleTraceDependencies);
     document.getElementById('previewEditBtn')?.addEventListener('click', handlePreviewEdit);
     document.getElementById('findErrorsBtn')?.addEventListener('click', handleFindErrors);
@@ -112,6 +114,9 @@ async function initializeApp() {
     
     // Update trace button visibility on initial load
     await updateTraceButtonVisibility();
+    
+    // Initialize file upload (works without conversation, will create one when needed)
+    initializeFileUpload();
 
     // Check backend connection
     await checkAPIConnection();
@@ -398,21 +403,32 @@ async function checkAPIConnection() {
 
 /**
  * Handle new conversation button click
- * Clears the current conversation and starts fresh
+ * Clears the conversation for THIS workbook only (doesn't affect other open workbooks)
  */
-function handleNewConversation() {
+async function handleNewConversation() {
     console.log('🔄 Starting new conversation...');
     
-    // Clear the stored conversation ID (use correct key!)
-    localStorage.removeItem('warren_conversation_id');
+    // Clear conversation for THIS workbook only
+    const result = await clearCurrentConversation();
     
-    // Clear the chat UI (keep it empty until user sends first message)
-    const chatContainer = document.getElementById('chatContainer');
-    if (chatContainer) {
-        chatContainer.innerHTML = '';
+    if (result.success) {
+        // Clear the chat UI
+        const chatContainer = document.getElementById('chatContainer');
+        if (chatContainer) {
+            chatContainer.innerHTML = '';
+        }
+        
+        // Show welcome screen
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        if (welcomeScreen) {
+            welcomeScreen.classList.remove('hidden');
+        }
+        
+        console.log('✅ New conversation ready for this workbook');
+        console.log(`  🔑 Workbook ID: ${result.workbookId}`);
+    } else {
+        console.error('❌ Failed to clear conversation:', result.error);
     }
-    
-    console.log('✅ New conversation ready - warren_conversation_id cleared, UI reset');
 }
 
 /**
@@ -426,10 +442,7 @@ function handleMenuClick() {
 /**
  * Handle upload button click
  */
-function handleUploadClick() {
-    console.log('Upload button clicked - feature to be implemented');
-    // TODO: Implement file upload feature
-}
+// File upload is now handled by fileUploadUI.js module
 
 /**
  * Handle send message
@@ -508,9 +521,20 @@ async function handleSendMessage() {
         }
         
         const conversationId = convResult.conversationId;
+        
+        // Log conversation details with clear formatting
+        console.group('📋 Conversation & Run Info');
         console.log(`💬 Conversation ID: ${conversationId}`);
+        console.log(`📂 Workbook: ${convResult.workbookName || 'Unknown'}`);
+        console.log(`🔑 Workbook ID: ${convResult.workbookId || 'Unknown'}`);
+        console.log(`📊 Status: ${convResult.isExisting ? 'Existing conversation' : 'New conversation'}`);
+        console.groupEnd();
+        
+        // Update file upload with conversationId
+        initializeFileUpload(conversationId);
 
         // Send message to conversation
+        console.log(`📤 Sending message to conversation: ${conversationId}`);
         const sendResult = await sendMessage(
             conversationId,
             message, 
@@ -525,7 +549,14 @@ async function handleSendMessage() {
         }
 
         const agentRunId = sendResult.agentRunId;
-        console.log(`🤖 Agent Run ID: ${agentRunId}`);
+        
+        // Log agent run details with clear formatting
+        console.group('🤖 Agent Run Started');
+        console.log(`🆔 Agent Run ID: ${agentRunId}`);
+        console.log(`💬 Conversation ID: ${conversationId}`);
+        console.log(`📝 User Query: "${message}"`);
+        console.log(`⏰ Started at: ${new Date().toLocaleTimeString()}`);
+        console.groupEnd();
 
         // Poll for agent run completion
         const pollResult = await pollAgentRun(
@@ -575,6 +606,14 @@ async function handleSendMessage() {
         }
 
         const result = pollResult.result;
+
+        // Log completion
+        console.group('✅ Agent Run Completed');
+        console.log(`🆔 Agent Run ID: ${agentRunId}`);
+        console.log(`💬 Conversation ID: ${conversationId}`);
+        console.log(`⏰ Completed at: ${new Date().toLocaleTimeString()}`);
+        console.log(`📊 Status: ${result.status}`);
+        console.groupEnd();
 
         // Remove typing indicator
         removeTypingIndicator();
